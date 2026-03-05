@@ -1,0 +1,67 @@
+<%- include('partials/header') %>
+
+<section class="hero">
+  <h1>Võrdle toiduhindu Eesti poodides</h1>
+  <p>Lihtne ülevaade populaarsete toodete hindadest eri kettides.</p>
+  <form class="search-form" method="get" action="/">
+    <input
+      type="text"
+      name="q"
+      placeholder="Otsi toodet (nt piim, leib)..."
+      value="<%= query || '' %>"
+    />
+    <% if (activeCategory && activeCategory !== 'all') { %>
+      <input type="hidden" name="category" value="<%= activeCategory %>" />
+    <% } %>
+    <button type="submit">Otsi</button>
+  </form>
+</section>
+
+<section class="products">
+  <h2>Tooted</h2>
+  <div class="categories">
+    <% categories.forEach(function(cat) { %>
+      <a
+        href="/?category=<%= cat.id %><% if (query) { %>&q=<%= encodeURIComponent(query) %><% } %>"
+        class="category-chip <%= activeCategory === cat.id ? 'category-chip--active' : '' %>"
+      >
+        <%= cat.name %>
+      </a>
+    <% }) %>
+  </div>
+  <% if (products.length === 0) { %>
+    <p>Tooteid ei leitud.</p>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>Toode</th>
+            <% stores.forEach(store => { %>
+              <th><%= store.name %></th>
+            <% }) %>
+          </tr>
+        </thead>
+        <tbody>
+          <% products.forEach(product => { %>
+            <tr>
+              <td>
+                <a href="/product/<%= product.slug %>"><%= product.name %></a>
+                <div class="product-category"><%= product.category %></div>
+              </td>
+              <% stores.forEach(store => { %>
+                <% const price = product.prices[store.id]; %>
+                <td class="<%= store.id === product.bestStoreId ? 'best-price' : '' %>">
+                  <%= price ? price.toFixed(2) + ' €' : '-' %>
+                </td>
+              <% }) %>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>
+

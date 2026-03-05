@@ -1,0 +1,69 @@
+<%- include('partials/header') %>
+
+<section class="admin-page">
+  <h1>Lisa uus toode</h1>
+
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+
+  <form method="post" action="/admin/products" class="auth-form">
+    <label>
+      Nimi
+      <input
+        type="text"
+        name="name"
+        required
+        value="<%= form.name || '' %>"
+      />
+    </label>
+
+    <label>
+      Kategooria
+      <select name="categoryId" required>
+        <% categories.forEach(function(cat) { %>
+          <% if (cat.id === 'all') return; %>
+          <option
+            value="<%= cat.id %>"
+            <%= form.categoryId === cat.id ? 'selected' : '' %>
+          >
+            <%= cat.name %>
+          </option>
+        <% }) %>
+      </select>
+    </label>
+
+    <label>
+      Slug (URL-i osa, kui jätad tühjaks, luuakse automaatselt nime põhjal)
+      <input
+        type="text"
+        name="slug"
+        value="<%= form.slug || '' %>"
+      />
+    </label>
+
+    <h2>Hinnad poodides</h2>
+
+    <% stores.forEach(function(store) { %>
+      <label>
+        <%= store.name %> hind (€)
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          name="price_<%= store.id %>"
+          value="<%= form['price_' + store.id] || '' %>"
+        />
+      </label>
+    <% }) %>
+
+    <button type="submit">Salvesta</button>
+  </form>
+
+  <p class="auth-switch">
+    <a href="/admin/products">← Tagasi toodete nimekirja</a>
+  </p>
+</section>
+
+<%- include('partials/footer') %>
+

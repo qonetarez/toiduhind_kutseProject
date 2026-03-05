@@ -1,0 +1,35 @@
+<%- include('partials/header') %>
+
+<section class="auth-page">
+  <h1>Logi sisse</h1>
+
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+
+  <form method="post" action="/login" class="auth-form">
+    <label>
+      E-post
+      <input
+        type="email"
+        name="email"
+        required
+        value="<%= form.email || '' %>"
+      />
+    </label>
+
+    <label>
+      Parool
+      <input type="password" name="password" required />
+    </label>
+
+    <button type="submit">Logi sisse</button>
+  </form>
+
+  <p class="auth-switch">
+    Pole veel kontot? <a href="/register">Loo konto</a>
+  </p>
+</section>
+
+<%- include('partials/footer') %>
+

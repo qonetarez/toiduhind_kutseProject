@@ -1,0 +1,40 @@
+<%- include('partials/header') %>
+
+<section class="auth-page">
+  <h1>Loo konto</h1>
+
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+
+  <form method="post" action="/register" class="auth-form">
+    <label>
+      E-post
+      <input
+        type="email"
+        name="email"
+        required
+        value="<%= form.email || '' %>"
+      />
+    </label>
+
+    <label>
+      Parool
+      <input type="password" name="password" required minlength="6" />
+    </label>
+
+    <label>
+      Korda parooli
+      <input type="password" name="confirmPassword" required minlength="6" />
+    </label>
+
+    <button type="submit">Registreeru</button>
+  </form>
+
+  <p class="auth-switch">
+    Juba konto olemas? <a href="/login">Logi sisse</a>
+  </p>
+</section>
+
+<%- include('partials/footer') %>
+

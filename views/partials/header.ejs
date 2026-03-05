@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="et">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ToiduHind.ee</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/css/styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container header-content">
+        <a href="/" class="logo">ToiduHind.ee</a>
+        <nav class="nav">
+          <a href="/">Avaleht</a>
+          <% if (currentUser) { %>
+            <a href="/profile">Minu profiil</a>
+            <form method="post" action="/logout" class="nav-logout-form">
+              <button type="submit">Logi välja</button>
+            </form>
+          <% } else { %>
+            <a href="/login">Logi sisse</a>
+            <a href="/register">Loo konto</a>
+          <% } %>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+

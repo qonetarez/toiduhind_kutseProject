@@ -1,0 +1,46 @@
+<%- include('partials/header') %>
+
+<section class="admin-page">
+  <div class="admin-header">
+    <h1>Admin: Tooted</h1>
+    <a href="/admin/products/new" class="btn-primary">Lisa uus toode</a>
+  </div>
+
+  <% if (products.length === 0) { %>
+    <p>Andmebaasis pole veel ühtegi toodet.</p>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>Nimi</th>
+            <th>Kategooria</th>
+            <% stores.forEach(store => { %>
+              <th><%= store.name %></th>
+            <% }) %>
+          </tr>
+        </thead>
+        <tbody>
+          <% products.forEach(p => { %>
+            <tr>
+              <td>
+                <strong><%= p.name %></strong>
+                <div class="product-category">Slug: <%= p.slug %></div>
+              </td>
+              <td><%= p.category %></td>
+              <% stores.forEach(store => { %>
+                <% const price = p.prices[store.id]; %>
+                <td>
+                  <%= typeof price === 'number' ? price.toFixed(2) + ' €' : '-' %>
+                </td>
+              <% }) %>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>
+
