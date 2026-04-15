@@ -2,6 +2,9 @@
 
 <section class="profile-page">
   <h1>Minu profiil</h1>
+  <% if (currentUser.username) { %>
+    <p>Kasutajanimi: <strong><%= currentUser.username %></strong></p>
+  <% } %>
   <p>Oled sisse loginud kui: <strong><%= currentUser.email %></strong></p>
   <p>Tulevikus saab siia lisada ostunimekirju, hinnateavitusi jms.</p>
 </section>

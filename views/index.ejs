@@ -1,34 +1,60 @@
 <%- include('partials/header') %>
 
-<section class="hero">
-  <h1>Võrdle toiduhindu Eesti poodides</h1>
-  <p>Lihtne ülevaade populaarsete toodete hindadest eri kettides.</p>
-  <form class="search-form" method="get" action="/">
-    <input
-      type="text"
-      name="q"
-      placeholder="Otsi toodet (nt piim, leib)..."
-      value="<%= query || '' %>"
-    />
-    <% if (activeCategory && activeCategory !== 'all') { %>
-      <input type="hidden" name="category" value="<%= activeCategory %>" />
-    <% } %>
-    <button type="submit">Otsi</button>
-  </form>
+<section class="page-title-row">
+  <h1>Toit ja joogid (<%= products.length %>)</h1>
 </section>
 
-<section class="products">
-  <h2>Tooted</h2>
-  <div class="categories">
-    <% categories.forEach(function(cat) { %>
+<section class="category-grid-section">
+  <div class="category-grid">
+    <% categoryCards.forEach(function(cat) { %>
       <a
-        href="/?category=<%= cat.id %><% if (query) { %>&q=<%= encodeURIComponent(query) %><% } %>"
-        class="category-chip <%= activeCategory === cat.id ? 'category-chip--active' : '' %>"
+        class="category-grid-item <%= activeCategory === cat.id ? 'category-grid-item--active' : '' %>"
+        href="/?category=<%= cat.id %><% if (query) { %>&q=<%= encodeURIComponent(query) %><% } %><% if (sort) { %>&sort=<%= sort %><% } %>"
       >
-        <%= cat.name %>
+        <span><%= cat.name %></span>
+        <strong><%= cat.count %></strong>
       </a>
     <% }) %>
   </div>
+</section>
+
+<section class="top-products">
+  <h2>TOP tooted</h2>
+  <% if (topProducts.length === 0) { %>
+    <p>Top tooted puuduvad.</p>
+  <% } else { %>
+    <div class="top-products-grid">
+      <% topProducts.forEach(function(product) { %>
+        <a class="top-product-card" href="/product/<%= product.slug %>">
+          <div class="top-product-name"><%= product.name %></div>
+          <div class="top-product-meta"><%= product.category %></div>
+          <div class="top-product-price">
+            Alates <%= product.bestPrice.toFixed(2) %> €
+          </div>
+        </a>
+      <% }) %>
+    </div>
+  <% } %>
+</section>
+
+<section class="products">
+  <div class="products-head">
+    <h2>Hinnavõrdlus</h2>
+    <form method="get" action="/" class="sort-form">
+      <input type="hidden" name="q" value="<%= query || '' %>" />
+      <input type="hidden" name="category" value="<%= activeCategory || 'all' %>" />
+      <label>
+        Sorteeri:
+        <select name="sort" onchange="this.form.submit()">
+          <option value="name_asc" <%= sort === 'name_asc' ? 'selected' : '' %>>Nimi A-Z</option>
+          <option value="name_desc" <%= sort === 'name_desc' ? 'selected' : '' %>>Nimi Z-A</option>
+          <option value="price_asc" <%= sort === 'price_asc' ? 'selected' : '' %>>Hind odavamast</option>
+          <option value="price_desc" <%= sort === 'price_desc' ? 'selected' : '' %>>Hind kallimast</option>
+        </select>
+      </label>
+    </form>
+  </div>
+
   <% if (products.length === 0) { %>
     <p>Tooteid ei leitud.</p>
   <% } else { %>
@@ -48,6 +74,13 @@
               <td>
                 <a href="/product/<%= product.slug %>"><%= product.name %></a>
                 <div class="product-category"><%= product.category %></div>
+                <form method="post" action="/cart/add" class="add-cart-inline">
+                  <input type="hidden" name="slug" value="<%= product.slug %>" />
+                  <input type="hidden" name="qty" value="1" />
+                  <input type="hidden" name="storeId" value="<%= product.bestStoreId || stores[0].id %>" />
+                  <input type="hidden" name="backUrl" value="<%= '/?q=' + encodeURIComponent(query || '') + '&category=' + encodeURIComponent(activeCategory || 'all') + '&sort=' + encodeURIComponent(sort || 'name_asc') %>" />
+                  <button type="submit">Lisa korvi</button>
+                </form>
               </td>
               <% stores.forEach(store => { %>
                 <% const price = product.prices[store.id]; %>

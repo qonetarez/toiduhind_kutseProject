@@ -9,6 +9,19 @@
 
   <form method="post" action="/register" class="auth-form">
     <label>
+      Kasutajanimi
+      <input
+        type="text"
+        name="username"
+        required
+        minlength="3"
+        maxlength="20"
+        pattern="[A-Za-z0-9._-]+"
+        value="<%= form.username || '' %>"
+      />
+    </label>
+
+    <label>
       E-post
       <input
         type="email"

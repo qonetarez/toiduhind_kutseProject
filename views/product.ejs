@@ -6,6 +6,28 @@
   <h1><%= product.name %></h1>
   <p class="product-category">Kategooria: <%= product.category %></p>
 
+  <form method="post" action="/cart/add" class="add-cart-form">
+    <input type="hidden" name="slug" value="<%= product.slug %>" />
+    <input type="hidden" name="backUrl" value="/product/<%= product.slug %>" />
+    <label>
+      Pood:
+      <select name="storeId">
+        <% stores.forEach(function(store) { %>
+          <% if (product.prices[store.id] !== undefined) { %>
+            <option value="<%= store.id %>" <%= bestStoreId === store.id ? 'selected' : '' %>>
+              <%= store.name %> - <%= product.prices[store.id].toFixed(2) %> €
+            </option>
+          <% } %>
+        <% }) %>
+      </select>
+    </label>
+    <label>
+      Kogus:
+      <input type="number" name="qty" min="1" value="1" />
+    </label>
+    <button type="submit">Lisa korvi</button>
+  </form>
+
   <h2>Hinnad poodides</h2>
   <div class="table-wrapper">
     <table class="price-table">
@@ -19,7 +41,7 @@
         <% stores.forEach(store => { %>
           <tr>
             <td><%= store.name %></td>
-            <td>
+            <td class="<%= bestStoreId === store.id ? 'best-price' : '' %>">
               <% const price = product.prices[store.id]; %>
               <%= price ? price.toFixed(2) + ' €' : 'Pole saadaval' %>
             </td>

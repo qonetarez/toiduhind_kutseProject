@@ -32,6 +32,26 @@ db.serialize(() => {
     }
   );
 
+  // Add username column if it doesn't exist
+  db.run(
+    'ALTER TABLE users ADD COLUMN username TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding username column:', err.message);
+      }
+    }
+  );
+
+  // Ensure username uniqueness when provided
+  db.run(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)',
+    (err) => {
+      if (err) {
+        console.error('Error creating username index:', err.message);
+      }
+    }
+  );
+
   // Products table
   db.run(
     `CREATE TABLE IF NOT EXISTS products (
@@ -166,22 +186,54 @@ app.use(
 // Make current user available in all views
 app.use((req, res, next) => {
   res.locals.currentUser = req.session.user || null;
+  res.locals.query = '';
+  res.locals.activeCategory = 'all';
+  res.locals.sort = 'name_asc';
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  res.locals.cartCount = cart.reduce((sum, item) => sum + (item.qty || 0), 0);
   next();
 });
 
 function slugify(str) {
-  return String(str)
+  const prepared = String(str)
     .toLowerCase()
+    .replace(/[ä]/g, 'ae')
+    .replace(/[ö]/g, 'oe')
+    .replace(/[ü]/g, 'ue')
+    .replace(/[õ]/g, 'o');
+
+  const cleaned = prepared
     .trim()
     .replace(/[\s_]+/g, '-')
     .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-');
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!cleaned) {
+    return `product-${Date.now()}`;
+  }
+
+  return cleaned;
+}
+
+function getBestPrice(prices) {
+  const entries = Object.entries(prices || {});
+  if (entries.length === 0) {
+    return null;
+  }
+  const best = entries.reduce(
+    (min, [storeId, price]) =>
+      price < min.price ? { storeId, price } : min,
+    { storeId: entries[0][0], price: entries[0][1] }
+  );
+  return best;
 }
 
 // Home page: list products with best price highlight
 app.get('/', (req, res) => {
   const query = (req.query.q || '').toLowerCase();
   const activeCategory = req.query.category || 'all';
+  const sort = req.query.sort || 'name_asc';
 
   db.all('SELECT * FROM products', (err, rows) => {
     if (err) {
@@ -205,141 +257,190 @@ app.get('/', (req, res) => {
       return matchesName && matchesCategory;
     });
 
-    const productsWithBest = filteredProducts.map((p) => {
-      const entries = Object.entries(p.prices);
-      if (entries.length === 0) {
-        return { ...p, bestStoreId: null };
+    let productsWithBest = filteredProducts.map((p) => {
+      const best = getBestPrice(p.prices);
+      if (!best) {
+        return { ...p, bestStoreId: null, bestPrice: null };
       }
-      const best = entries.reduce(
-        (min, [storeId, price]) =>
-          price < min.price ? { storeId, price } : min,
-        { storeId: entries[0][0], price: entries[0][1] }
-      );
-      return { ...p, bestStoreId: best.storeId };
+      return { ...p, bestStoreId: best.storeId, bestPrice: best.price };
     });
+
+    if (sort === 'name_desc') {
+      productsWithBest.sort((a, b) => b.name.localeCompare(a.name));
+    } else if (sort === 'price_asc') {
+      productsWithBest.sort(
+        (a, b) => (a.bestPrice ?? Number.MAX_VALUE) - (b.bestPrice ?? Number.MAX_VALUE)
+      );
+    } else if (sort === 'price_desc') {
+      productsWithBest.sort((a, b) => (b.bestPrice ?? 0) - (a.bestPrice ?? 0));
+    } else {
+      productsWithBest.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    const categoryCards = categories
+      .filter((c) => c.id !== 'all')
+      .map((cat) => {
+        const count = dbProducts.filter((p) => p.categoryId === cat.id).length;
+        return { ...cat, count };
+      });
+
+    const topProducts = [...productsWithBest]
+      .filter((p) => typeof p.bestPrice === 'number')
+      .sort((a, b) => a.bestPrice - b.bestPrice)
+      .slice(0, 6);
 
     res.render('index', {
       stores,
       products: productsWithBest,
       query,
       categories,
-      activeCategory
+      activeCategory,
+      sort,
+      categoryCards,
+      topProducts
     });
   });
 });
 
 // Auth routes
 app.get('/register', (req, res) => {
-  res.render('register', { error: null, form: { email: '' } });
+  res.render('register', { error: null, form: { email: '', username: '' } });
 });
 
 app.post('/register', (req, res) => {
-  const { email, password, confirmPassword } = req.body;
+  const { email, username, password, confirmPassword } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedUsername = String(username || '').trim().toLowerCase();
 
-  if (!email || !password || !confirmPassword) {
+  if (!normalizedEmail || !normalizedUsername || !password || !confirmPassword) {
     return res.render('register', {
       error: 'Täida kõik väljad.',
-      form: { email }
+      form: { email: normalizedEmail, username: normalizedUsername }
     });
   }
 
   if (password !== confirmPassword) {
     return res.render('register', {
       error: 'Paroolid ei ühti.',
-      form: { email }
+      form: { email: normalizedEmail, username: normalizedUsername }
     });
   }
 
-  db.get('SELECT id FROM users WHERE email = ?', [email], (err, existing) => {
-    if (err) {
-      console.error(err);
-      return res.render('register', {
-        error: 'Serveri viga. Proovi hiljem uuesti.',
-        form: { email }
-      });
-    }
+  if (!/^[a-z0-9._-]{3,20}$/.test(normalizedUsername)) {
+    return res.render('register', {
+      error: 'Kasutajanimi peab olema 3-20 märki (a-z, 0-9, ., _, -).',
+      form: { email: normalizedEmail, username: normalizedUsername }
+    });
+  }
 
-    if (existing) {
-      return res.render('register', {
-        error: 'Sellise e-posti aadressiga kasutaja on juba olemas.',
-        form: { email }
-      });
-    }
-
-    const passwordHash = bcrypt.hashSync(password, 10);
-
-    db.get('SELECT COUNT(*) AS count FROM users', (countErr, row) => {
-      if (countErr) {
-        console.error(countErr);
+  db.get(
+    'SELECT id, email, username FROM users WHERE email = ? OR username = ?',
+    [normalizedEmail, normalizedUsername],
+    (err, existing) => {
+      if (err) {
+        console.error(err);
         return res.render('register', {
           error: 'Serveri viga. Proovi hiljem uuesti.',
-          form: { email }
+          form: { email: normalizedEmail, username: normalizedUsername }
         });
       }
 
-      const isFirstUser = row && row.count === 0;
-      const role = isFirstUser ? 'admin' : 'user';
+      if (existing) {
+        const duplicateMsg =
+          existing.email === normalizedEmail
+            ? 'Sellise e-posti aadressiga kasutaja on juba olemas.'
+            : 'Selline kasutajanimi on juba kasutusel.';
+        return res.render('register', {
+          error: duplicateMsg,
+          form: { email: normalizedEmail, username: normalizedUsername }
+        });
+      }
 
-      db.run(
-        'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)',
-        [email, passwordHash, role],
-        function (insertErr) {
-          if (insertErr) {
-            console.error(insertErr);
-            return res.render('register', {
-              error: 'Serveri viga. Proovi hiljem uuesti.',
-              form: { email }
-            });
-          }
+      const passwordHash = bcrypt.hashSync(password, 10);
 
-          return res.redirect('/login');
+      db.get('SELECT COUNT(*) AS count FROM users', (countErr, row) => {
+        if (countErr) {
+          console.error(countErr);
+          return res.render('register', {
+            error: 'Serveri viga. Proovi hiljem uuesti.',
+            form: { email: normalizedEmail, username: normalizedUsername }
+          });
         }
-      );
-    });
-  });
+
+        const isFirstUser = row && row.count === 0;
+        const role = isFirstUser ? 'admin' : 'user';
+
+        db.run(
+          'INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)',
+          [normalizedEmail, normalizedUsername, passwordHash, role],
+          function (insertErr) {
+            if (insertErr) {
+              console.error(insertErr);
+              return res.render('register', {
+                error: 'Serveri viga. Proovi hiljem uuesti.',
+                form: { email: normalizedEmail, username: normalizedUsername }
+              });
+            }
+
+            return res.redirect('/login');
+          }
+        );
+      });
+    }
+  );
 });
 
 app.get('/login', (req, res) => {
-  res.render('login', { error: null, form: { email: '' } });
+  res.render('login', { error: null, form: { identifier: '' } });
 });
 
 app.post('/login', (req, res) => {
-  const { email, password } = req.body;
+  const { identifier, password } = req.body;
+  const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
 
-  if (!email || !password) {
+  if (!normalizedIdentifier || !password) {
     return res.render('login', {
-      error: 'Sisesta e-post ja parool.',
-      form: { email }
+      error: 'Sisesta e-post/kasutajanimi ja parool.',
+      form: { identifier: normalizedIdentifier }
     });
   }
 
-  db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-    if (err) {
-      console.error(err);
-      return res.render('login', {
-        error: 'Serveri viga. Proovi hiljem uuesti.',
-        form: { email }
-      });
-    }
+  db.get(
+    'SELECT * FROM users WHERE email = ? OR username = ?',
+    [normalizedIdentifier, normalizedIdentifier],
+    (err, user) => {
+      if (err) {
+        console.error(err);
+        return res.render('login', {
+          error: 'Serveri viga. Proovi hiljem uuesti.',
+          form: { identifier: normalizedIdentifier }
+        });
+      }
 
-    if (!user) {
-      return res.render('login', {
-        error: 'Vale e-post või parool.',
-        form: { email }
-      });
-    }
+      if (!user) {
+        return res.render('login', {
+          error: 'Vale e-post/kasutajanimi või parool.',
+          form: { identifier: normalizedIdentifier }
+        });
+      }
 
-    const isValid = bcrypt.compareSync(password, user.password_hash);
-    if (!isValid) {
-      return res.render('login', {
-        error: 'Vale e-post või parool.',
-        form: { email }
-      });
-    }
+      const isValid = bcrypt.compareSync(password, user.password_hash);
+      if (!isValid) {
+        return res.render('login', {
+          error: 'Vale e-post/kasutajanimi või parool.',
+          form: { identifier: normalizedIdentifier }
+        });
+      }
 
-    req.session.user = { id: user.id, email: user.email, role: user.role || 'user' };
-    return res.redirect('/profile');
-  });
+      req.session.user = {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        role: user.role || 'user'
+      };
+      return res.redirect('/profile');
+    }
+  );
 });
 
 app.post('/logout', (req, res) => {
@@ -463,10 +564,77 @@ app.post('/admin/products', requireAdmin, (req, res) => {
   );
 });
 
+// Cart
+app.get('/cart', (req, res) => {
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  res.render('cart', { cart, total });
+});
+
+app.post('/cart/add', (req, res) => {
+  const { slug, storeId, qty } = req.body;
+  const quantity = Math.max(1, parseInt(qty, 10) || 1);
+
+  db.get('SELECT * FROM products WHERE slug = ?', [slug], (err, row) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Serveri viga');
+    }
+    if (!row) {
+      return res.status(404).render('not-found');
+    }
+
+    const prices = JSON.parse(row.prices_json);
+    const selectedStoreId = prices[storeId] !== undefined ? storeId : Object.keys(prices)[0];
+    if (!selectedStoreId) {
+      return res.redirect('/');
+    }
+
+    const price = Number(prices[selectedStoreId]);
+    const storeName = stores.find((s) => s.id === selectedStoreId)?.name || selectedStoreId;
+
+    if (!Array.isArray(req.session.cart)) {
+      req.session.cart = [];
+    }
+
+    const existing = req.session.cart.find(
+      (item) => item.slug === row.slug && item.storeId === selectedStoreId
+    );
+
+    if (existing) {
+      existing.qty += quantity;
+    } else {
+      req.session.cart.push({
+        slug: row.slug,
+        name: row.name,
+        storeId: selectedStoreId,
+        storeName,
+        price,
+        qty: quantity
+      });
+    }
+
+    const backUrl = req.body.backUrl || `/product/${row.slug}`;
+    return res.redirect(backUrl);
+  });
+});
+
+app.post('/cart/remove', (req, res) => {
+  const { slug, storeId } = req.body;
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  req.session.cart = cart.filter((item) => !(item.slug === slug && item.storeId === storeId));
+  res.redirect('/cart');
+});
+
+app.post('/cart/clear', (req, res) => {
+  req.session.cart = [];
+  res.redirect('/cart');
+});
+
 // Product details page
 app.get('/product/:slug', (req, res) => {
   const slug = req.params.slug;
-  db.get('SELECT * FROM products WHERE slug = ?', [slug], (err, row) => {
+  db.get('SELECT * FROM products WHERE slug = ? OR CAST(id AS TEXT) = ?', [slug, slug], (err, row) => {
     if (err) {
       console.error(err);
       return res.status(500).send('Serveri viga');
@@ -483,10 +651,12 @@ app.get('/product/:slug', (req, res) => {
       categoryId: row.category_id,
       prices: JSON.parse(row.prices_json)
     };
+    const best = getBestPrice(product.prices);
 
     res.render('product', {
       stores,
-      product
+      product,
+      bestStoreId: best ? best.storeId : null
     });
   });
 });

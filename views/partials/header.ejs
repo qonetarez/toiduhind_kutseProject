@@ -10,8 +10,28 @@
     <header class="header">
       <div class="container header-content">
         <a href="/" class="logo">ToiduHind.ee</a>
+        <form class="header-search" method="get" action="/">
+          <input
+            type="text"
+            name="q"
+            placeholder="Millist toodet Te otsite?"
+            value="<%= query || '' %>"
+          />
+          <% if (activeCategory && activeCategory !== 'all') { %>
+            <input type="hidden" name="category" value="<%= activeCategory %>" />
+          <% } %>
+          <% if (sort) { %>
+            <input type="hidden" name="sort" value="<%= sort %>" />
+          <% } %>
+          <button type="submit">Otsi</button>
+        </form>
         <nav class="nav">
           <a href="/">Avaleht</a>
+          <a href="/?category=all">Kategooriad</a>
+          <a href="/cart">Korv (<%= cartCount %>)</a>
+          <% if (currentUser && currentUser.role === 'admin') { %>
+            <a href="/admin/products">Admin</a>
+          <% } %>
           <% if (currentUser) { %>
             <a href="/profile">Minu profiil</a>
             <form method="post" action="/logout" class="nav-logout-form">

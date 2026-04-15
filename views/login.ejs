@@ -9,12 +9,12 @@
 
   <form method="post" action="/login" class="auth-form">
     <label>
-      E-post
+      E-post või kasutajanimi
       <input
-        type="email"
-        name="email"
+        type="text"
+        name="identifier"
         required
-        value="<%= form.email || '' %>"
+        value="<%= form.identifier || '' %>"
       />
     </label>
 
