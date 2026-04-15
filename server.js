@@ -4,9 +4,37 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
+const swaggerUi = require('swagger-ui-express');
+const swaggerJsdoc = require('swagger-jsdoc');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const swaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'ToiduHind.ee API',
+      version: '1.0.0',
+      description: 'API documentation for ToiduHind.ee Node.js project'
+    },
+    servers: [
+      {
+        url: `http://localhost:${PORT}`,
+        description: 'Local server'
+      }
+    ],
+    tags: [
+      { name: 'Public', description: 'Public product and home endpoints' },
+      { name: 'Auth', description: 'Registration and login endpoints' },
+      { name: 'Cart', description: 'Shopping cart endpoints' },
+      { name: 'Admin', description: 'Admin panel endpoints' }
+    ]
+  },
+  apis: [__filename]
+};
+
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
 
 // Database (SQLite)
 const db = new sqlite3.Database(path.join(__dirname, 'toiduhind.db'));
@@ -230,6 +258,33 @@ function getBestPrice(prices) {
 }
 
 // Home page: list products with best price highlight
+/**
+ * @openapi
+ * /:
+ *   get:
+ *     tags: [Public]
+ *     summary: Render home page with products
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema:
+ *           type: string
+ *         description: Product search query
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *         description: Category id filter
+ *       - in: query
+ *         name: sort
+ *         schema:
+ *           type: string
+ *           enum: [name_asc, name_desc, price_asc, price_desc]
+ *         description: Sort mode
+ *     responses:
+ *       200:
+ *         description: Rendered HTML page
+ */
 app.get('/', (req, res) => {
   const query = (req.query.q || '').toLowerCase();
   const activeCategory = req.query.category || 'all';
@@ -303,10 +358,46 @@ app.get('/', (req, res) => {
 });
 
 // Auth routes
+/**
+ * @openapi
+ * /register:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Render registration page
+ *     responses:
+ *       200:
+ *         description: Rendered HTML page
+ */
 app.get('/register', (req, res) => {
   res.render('register', { error: null, form: { email: '', username: '' } });
 });
 
+/**
+ * @openapi
+ * /register:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Register a new user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [email, username, password, confirmPassword]
+ *             properties:
+ *               email:
+ *                 type: string
+ *               username:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               confirmPassword:
+ *                 type: string
+ *     responses:
+ *       302:
+ *         description: Redirect after registration
+ */
 app.post('/register', (req, res) => {
   const { email, username, password, confirmPassword } = req.body;
   const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -390,10 +481,42 @@ app.post('/register', (req, res) => {
   );
 });
 
+/**
+ * @openapi
+ * /login:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Render login page
+ *     responses:
+ *       200:
+ *         description: Rendered HTML page
+ */
 app.get('/login', (req, res) => {
   res.render('login', { error: null, form: { identifier: '' } });
 });
 
+/**
+ * @openapi
+ * /login:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Login using email or username
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [identifier, password]
+ *             properties:
+ *               identifier:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       302:
+ *         description: Redirect after login
+ */
 app.post('/login', (req, res) => {
   const { identifier, password } = req.body;
   const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
@@ -472,6 +595,18 @@ function requireAdmin(req, res, next) {
 }
 
 // Admin product management
+/**
+ * @openapi
+ * /admin/products:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Admin products list page
+ *     responses:
+ *       200:
+ *         description: Rendered HTML page
+ *       403:
+ *         description: Forbidden
+ */
 app.get('/admin/products', requireAdmin, (req, res) => {
   db.all('SELECT * FROM products ORDER BY created_at DESC', (err, rows) => {
     if (err) {
@@ -504,6 +639,30 @@ app.get('/admin/products/new', requireAdmin, (req, res) => {
   });
 });
 
+/**
+ * @openapi
+ * /admin/products:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a new product from admin panel
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [name, categoryId]
+ *             properties:
+ *               name:
+ *                 type: string
+ *               categoryId:
+ *                 type: string
+ *               slug:
+ *                 type: string
+ *     responses:
+ *       302:
+ *         description: Redirect after create
+ */
 app.post('/admin/products', requireAdmin, (req, res) => {
   const { name, categoryId, slug: rawSlug } = req.body;
 
@@ -565,12 +724,46 @@ app.post('/admin/products', requireAdmin, (req, res) => {
 });
 
 // Cart
+/**
+ * @openapi
+ * /cart:
+ *   get:
+ *     tags: [Cart]
+ *     summary: Render shopping cart page
+ *     responses:
+ *       200:
+ *         description: Rendered HTML page
+ */
 app.get('/cart', (req, res) => {
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
   res.render('cart', { cart, total });
 });
 
+/**
+ * @openapi
+ * /cart/add:
+ *   post:
+ *     tags: [Cart]
+ *     summary: Add product to cart
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [slug]
+ *             properties:
+ *               slug:
+ *                 type: string
+ *               storeId:
+ *                 type: string
+ *               qty:
+ *                 type: integer
+ *     responses:
+ *       302:
+ *         description: Redirect after adding item
+ */
 app.post('/cart/add', (req, res) => {
   const { slug, storeId, qty } = req.body;
   const quantity = Math.max(1, parseInt(qty, 10) || 1);
@@ -619,6 +812,28 @@ app.post('/cart/add', (req, res) => {
   });
 });
 
+/**
+ * @openapi
+ * /cart/remove:
+ *   post:
+ *     tags: [Cart]
+ *     summary: Remove item from cart
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/x-www-form-urlencoded:
+ *           schema:
+ *             type: object
+ *             required: [slug, storeId]
+ *             properties:
+ *               slug:
+ *                 type: string
+ *               storeId:
+ *                 type: string
+ *     responses:
+ *       302:
+ *         description: Redirect after removal
+ */
 app.post('/cart/remove', (req, res) => {
   const { slug, storeId } = req.body;
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
@@ -626,12 +841,41 @@ app.post('/cart/remove', (req, res) => {
   res.redirect('/cart');
 });
 
+/**
+ * @openapi
+ * /cart/clear:
+ *   post:
+ *     tags: [Cart]
+ *     summary: Clear all cart items
+ *     responses:
+ *       302:
+ *         description: Redirect after clear
+ */
 app.post('/cart/clear', (req, res) => {
   req.session.cart = [];
   res.redirect('/cart');
 });
 
 // Product details page
+/**
+ * @openapi
+ * /product/{slug}:
+ *   get:
+ *     tags: [Public]
+ *     summary: Render product page by slug or id
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Product slug (or numeric id)
+ *     responses:
+ *       200:
+ *         description: Rendered HTML page
+ *       404:
+ *         description: Product not found
+ */
 app.get('/product/:slug', (req, res) => {
   const slug = req.params.slug;
   db.get('SELECT * FROM products WHERE slug = ? OR CAST(id AS TEXT) = ?', [slug, slug], (err, row) => {
@@ -660,6 +904,12 @@ app.get('/product/:slug', (req, res) => {
     });
   });
 });
+
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Simple 404 fallback
 app.use((req, res) => {
