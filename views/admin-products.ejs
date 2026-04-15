@@ -24,6 +24,9 @@
           <% products.forEach(p => { %>
             <tr>
               <td>
+                <% if (p.imageUrl) { %>
+                  <img src="<%= p.imageUrl %>" alt="<%= p.name %>" class="admin-product-thumb" />
+                <% } %>
                 <strong><%= p.name %></strong>
                 <div class="product-category">Slug: <%= p.slug %></div>
               </td>

@@ -26,6 +26,9 @@
     <div class="top-products-grid">
       <% topProducts.forEach(function(product) { %>
         <a class="top-product-card" href="/product/<%= product.slug %>">
+          <% if (product.imageUrl) { %>
+            <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="top-product-image" />
+          <% } %>
           <div class="top-product-name"><%= product.name %></div>
           <div class="top-product-meta"><%= product.category %></div>
           <div class="top-product-price">
@@ -72,6 +75,9 @@
           <% products.forEach(product => { %>
             <tr>
               <td>
+                <% if (product.imageUrl) { %>
+                  <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-thumb" />
+                <% } %>
                 <a href="/product/<%= product.slug %>"><%= product.name %></a>
                 <div class="product-category"><%= product.category %></div>
                 <form method="post" action="/cart/add" class="add-cart-inline">

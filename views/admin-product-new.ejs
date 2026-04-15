@@ -42,6 +42,16 @@
       />
     </label>
 
+    <label>
+      Pildi URL
+      <input
+        type="url"
+        name="imageUrl"
+        placeholder="https://..."
+        value="<%= form.imageUrl || '' %>"
+      />
+    </label>
+
     <h2>Hinnad poodides</h2>
 
     <% stores.forEach(function(store) { %>

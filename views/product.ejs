@@ -4,6 +4,9 @@
 
 <section class="product-detail">
   <h1><%= product.name %></h1>
+  <% if (product.imageUrl) { %>
+    <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-hero-image" />
+  <% } %>
   <p class="product-category">Kategooria: <%= product.category %></p>
 
   <form method="post" action="/cart/add" class="add-cart-form">
@@ -34,18 +37,43 @@
       <thead>
         <tr>
           <th>Pood</th>
-          <th>Hind</th>
+          <th>Hind praegu</th>
+          <th>1 kuu muutus</th>
+          <th>1 aasta muutus</th>
         </tr>
       </thead>
       <tbody>
         <% stores.forEach(store => { %>
-          <tr>
-            <td><%= store.name %></td>
-            <td class="<%= bestStoreId === store.id ? 'best-price' : '' %>">
-              <% const price = product.prices[store.id]; %>
-              <%= price ? price.toFixed(2) + ' €' : 'Pole saadaval' %>
-            </td>
-          </tr>
+          <% const price = product.prices[store.id]; %>
+          <% if (price !== undefined) { %>
+            <% const stat = priceStats ? priceStats[store.id] : null; %>
+            <tr>
+              <td><%= store.name %></td>
+              <td class="<%= bestStoreId === store.id ? 'best-price' : '' %>">
+                <%= price ? price.toFixed(2) + ' €' : 'Pole saadaval' %>
+              </td>
+              <td>
+                <% if (stat && stat.monthChange) { %>
+                  <span class="<%= stat.monthChange.diff > 0 ? 'price-up' : stat.monthChange.diff < 0 ? 'price-down' : 'price-flat' %>">
+                    <%= stat.monthChange.diff > 0 ? '+' : '' %><%= stat.monthChange.diff.toFixed(2) %> €
+                    (<%= stat.monthChange.percent > 0 ? '+' : '' %><%= stat.monthChange.percent.toFixed(1) %>%)
+                  </span>
+                <% } else { %>
+                  -
+                <% } %>
+              </td>
+              <td>
+                <% if (stat && stat.yearChange) { %>
+                  <span class="<%= stat.yearChange.diff > 0 ? 'price-up' : stat.yearChange.diff < 0 ? 'price-down' : 'price-flat' %>">
+                    <%= stat.yearChange.diff > 0 ? '+' : '' %><%= stat.yearChange.diff.toFixed(2) %> €
+                    (<%= stat.yearChange.percent > 0 ? '+' : '' %><%= stat.yearChange.percent.toFixed(1) %>%)
+                  </span>
+                <% } else { %>
+                  -
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
         <% }) %>
       </tbody>
     </table>

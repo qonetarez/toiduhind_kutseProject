@@ -88,8 +88,30 @@ db.serialize(() => {
       name TEXT NOT NULL,
       category TEXT NOT NULL,
       category_id TEXT NOT NULL,
+      image_url TEXT,
       prices_json TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
+  db.run(
+    'ALTER TABLE products ADD COLUMN image_url TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding image_url column:', err.message);
+      }
+    }
+  );
+
+  // Product price history table
+  db.run(
+    `CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      store_id TEXT NOT NULL,
+      price REAL NOT NULL,
+      recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id)
     )`
   );
 
@@ -101,7 +123,7 @@ db.serialize(() => {
     }
     if (row && row.count === 0) {
       const insertStmt = db.prepare(
-        'INSERT INTO products (slug, name, category, category_id, prices_json) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO products (slug, name, category, category_id, image_url, prices_json) VALUES (?, ?, ?, ?, ?, ?)'
       );
       seedProducts.forEach((p) => {
         insertStmt.run(
@@ -109,11 +131,55 @@ db.serialize(() => {
           p.name,
           p.category,
           p.categoryId,
+          p.imageUrl || null,
           JSON.stringify(p.prices)
         );
       });
       insertStmt.finalize();
     }
+  });
+
+  // Seed price history if empty
+  db.get('SELECT COUNT(*) AS count FROM price_history', (historyErr, historyRow) => {
+    if (historyErr) {
+      console.error('Error counting price history:', historyErr.message);
+      return;
+    }
+    if (!historyRow || historyRow.count > 0) {
+      return;
+    }
+
+    db.all('SELECT id, prices_json FROM products', (productsErr, productRows) => {
+      if (productsErr) {
+        console.error('Error reading products for history seed:', productsErr.message);
+        return;
+      }
+
+      const historyStmt = db.prepare(
+        'INSERT INTO price_history (product_id, store_id, price, recorded_at) VALUES (?, ?, ?, ?)'
+      );
+      const now = new Date();
+      const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+      productRows.forEach((pRow) => {
+        const prices = JSON.parse(pRow.prices_json || '{}');
+        Object.entries(prices).forEach(([storeId, currentPrice]) => {
+          const cur = Number(currentPrice);
+          if (!Number.isFinite(cur)) {
+            return;
+          }
+          const monthPrice = Number((cur * 1.06).toFixed(2));
+          const yearPrice = Number((cur * 1.18).toFixed(2));
+
+          historyStmt.run(pRow.id, storeId, yearPrice, yearAgo.toISOString());
+          historyStmt.run(pRow.id, storeId, monthPrice, monthAgo.toISOString());
+          historyStmt.run(pRow.id, storeId, cur, now.toISOString());
+        });
+      });
+
+      historyStmt.finalize();
+    });
   });
 });
 
@@ -139,6 +205,7 @@ const seedProducts = [
     name: 'Piim 1L',
     category: 'Piimatooted',
     categoryId: 'piimatooted',
+    imageUrl: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=500&q=80',
     prices: {
       rimi: 1.19,
       prisma: 1.15,
@@ -151,6 +218,7 @@ const seedProducts = [
     name: 'Sai valge',
     category: 'Leivatooted',
     categoryId: 'leivatooted',
+    imageUrl: 'https://images.unsplash.com/photo-1608198093002-ad4e005484ec?auto=format&fit=crop&w=500&q=80',
     prices: {
       rimi: 1.49,
       prisma: 1.39,
@@ -163,6 +231,7 @@ const seedProducts = [
     name: 'Munad 10 tk',
     category: 'Munad',
     categoryId: 'munad',
+    imageUrl: 'https://images.unsplash.com/photo-1506976785307-8732e854ad03?auto=format&fit=crop&w=500&q=80',
     prices: {
       rimi: 2.19,
       prisma: 2.09,
@@ -175,6 +244,7 @@ const seedProducts = [
     name: 'Või 200 g',
     category: 'Piimatooted',
     categoryId: 'piimatooted',
+    imageUrl: 'https://images.unsplash.com/photo-1589985270958-b0c7f25cb14c?auto=format&fit=crop&w=500&q=80',
     prices: {
       rimi: 2.39,
       prisma: 2.29,
@@ -187,6 +257,7 @@ const seedProducts = [
     name: 'Rukkileib',
     category: 'Leivatooted',
     categoryId: 'leivatooted',
+    imageUrl: 'https://images.unsplash.com/photo-1549931319-a545dcf3bc73?auto=format&fit=crop&w=500&q=80',
     prices: {
       rimi: 1.89,
       prisma: 1.79,
@@ -257,6 +328,31 @@ function getBestPrice(prices) {
   return best;
 }
 
+function computePriceChange(current, previous) {
+  if (!Number.isFinite(previous) || previous === 0) {
+    return null;
+  }
+  const diff = current - previous;
+  const percent = (diff / previous) * 100;
+  return { diff, percent };
+}
+
+function findClosestBefore(historyRows, targetDate) {
+  const targetTs = targetDate.getTime();
+  const eligible = historyRows
+    .map((row) => ({
+      ...row,
+      ts: new Date(row.recorded_at).getTime()
+    }))
+    .filter((row) => Number.isFinite(row.ts) && row.ts <= targetTs)
+    .sort((a, b) => b.ts - a.ts);
+
+  if (eligible.length === 0) {
+    return null;
+  }
+  return Number(eligible[0].price);
+}
+
 // Home page: list products with best price highlight
 /**
  * @openapi
@@ -302,6 +398,7 @@ app.get('/', (req, res) => {
       name: row.name,
       category: row.category,
       categoryId: row.category_id,
+      imageUrl: row.image_url || '',
       prices: JSON.parse(row.prices_json)
     }));
 
@@ -620,6 +717,7 @@ app.get('/admin/products', requireAdmin, (req, res) => {
       name: row.name,
       category: row.category,
       categoryId: row.category_id,
+      imageUrl: row.image_url || '',
       prices: JSON.parse(row.prices_json)
     }));
 
@@ -664,7 +762,7 @@ app.get('/admin/products/new', requireAdmin, (req, res) => {
  *         description: Redirect after create
  */
 app.post('/admin/products', requireAdmin, (req, res) => {
-  const { name, categoryId, slug: rawSlug } = req.body;
+  const { name, categoryId, slug: rawSlug, imageUrl } = req.body;
 
   if (!name || !categoryId) {
     return res.render('admin-product-new', {
@@ -700,9 +798,9 @@ app.post('/admin/products', requireAdmin, (req, res) => {
   }
 
   db.run(
-    'INSERT INTO products (slug, name, category, category_id, prices_json) VALUES (?, ?, ?, ?, ?)',
-    [slug, name, category, categoryId, JSON.stringify(prices)],
-    (err) => {
+    'INSERT INTO products (slug, name, category, category_id, image_url, prices_json) VALUES (?, ?, ?, ?, ?, ?)',
+    [slug, name, category, categoryId, String(imageUrl || '').trim() || null, JSON.stringify(prices)],
+    function (err) {
       if (err) {
         console.error(err);
         const isUnique =
@@ -718,7 +816,17 @@ app.post('/admin/products', requireAdmin, (req, res) => {
         });
       }
 
-      return res.redirect('/admin/products');
+      const productId = this.lastID;
+      const historyStmt = db.prepare(
+        'INSERT INTO price_history (product_id, store_id, price, recorded_at) VALUES (?, ?, ?, ?)'
+      );
+      const nowIso = new Date().toISOString();
+      Object.entries(prices).forEach(([storeId, price]) => {
+        historyStmt.run(productId, storeId, Number(price), nowIso);
+      });
+      historyStmt.finalize(() => {
+        return res.redirect('/admin/products');
+      });
     }
   );
 });
@@ -800,6 +908,7 @@ app.post('/cart/add', (req, res) => {
       req.session.cart.push({
         slug: row.slug,
         name: row.name,
+        imageUrl: row.image_url || '',
         storeId: selectedStoreId,
         storeName,
         price,
@@ -893,15 +1002,53 @@ app.get('/product/:slug', (req, res) => {
       name: row.name,
       category: row.category,
       categoryId: row.category_id,
+      imageUrl: row.image_url || '',
       prices: JSON.parse(row.prices_json)
     };
     const best = getBestPrice(product.prices);
 
-    res.render('product', {
-      stores,
-      product,
-      bestStoreId: best ? best.storeId : null
-    });
+    db.all(
+      'SELECT store_id, price, recorded_at FROM price_history WHERE product_id = ?',
+      [row.id],
+      (historyErr, historyRows) => {
+        if (historyErr) {
+          console.error(historyErr);
+          return res.status(500).send('Serveri viga');
+        }
+
+        const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+        const byStore = {};
+        historyRows.forEach((hRow) => {
+          if (!byStore[hRow.store_id]) {
+            byStore[hRow.store_id] = [];
+          }
+          byStore[hRow.store_id].push(hRow);
+        });
+
+        const priceStats = {};
+        Object.keys(product.prices).forEach((storeId) => {
+          const current = Number(product.prices[storeId]);
+          const rowsForStore = byStore[storeId] || [];
+          const monthPrice = findClosestBefore(rowsForStore, monthAgo);
+          const yearPrice = findClosestBefore(rowsForStore, yearAgo);
+          priceStats[storeId] = {
+            monthPrice,
+            yearPrice,
+            monthChange: computePriceChange(current, monthPrice),
+            yearChange: computePriceChange(current, yearPrice)
+          };
+        });
+
+        res.render('product', {
+          stores,
+          product,
+          bestStoreId: best ? best.storeId : null,
+          priceStats
+        });
+      }
+    );
+    
   });
 });
 

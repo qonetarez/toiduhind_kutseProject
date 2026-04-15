@@ -29,7 +29,12 @@
         <tbody>
           <% cart.forEach(function(item) { %>
             <tr>
-              <td><a href="/product/<%= item.slug %>"><%= item.name %></a></td>
+              <td>
+                <% if (item.imageUrl) { %>
+                  <img src="<%= item.imageUrl %>" alt="<%= item.name %>" class="cart-product-thumb" />
+                <% } %>
+                <a href="/product/<%= item.slug %>"><%= item.name %></a>
+              </td>
               <td><%= item.storeName %></td>
               <td><%= item.price.toFixed(2) %> €</td>
               <td><%= item.qty %></td>
