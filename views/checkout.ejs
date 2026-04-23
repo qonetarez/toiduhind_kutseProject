@@ -1,0 +1,53 @@
+<%- include('partials/header') %>
+
+<section class="checkout-page">
+  <h1>Vormista ost</h1>
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+
+  <div class="checkout-layout">
+    <form method="post" action="/checkout" class="auth-form checkout-details-form">
+      <label>
+        Eesnimi
+        <input type="text" name="firstName" required value="<%= form.firstName %>" />
+      </label>
+      <label>
+        Perekonnanimi
+        <input type="text" name="lastName" required value="<%= form.lastName %>" />
+      </label>
+      <label>
+        Telefon
+        <input type="text" name="phone" required value="<%= form.phone %>" />
+      </label>
+      <label>
+        Aadress
+        <input type="text" name="address" required value="<%= form.address %>" />
+      </label>
+      <label>
+        Makseviis
+        <select name="bank" required>
+          <option value="swedbank" <%= form.bank === 'swedbank' ? 'selected' : '' %>>Swedbank</option>
+          <option value="seb" <%= form.bank === 'seb' ? 'selected' : '' %>>SEB</option>
+          <option value="lhv" <%= form.bank === 'lhv' ? 'selected' : '' %>>LHV</option>
+        </select>
+      </label>
+      <button type="submit">Jätka panka</button>
+    </form>
+
+    <aside class="checkout-summary">
+      <h2>Sinu tellimus</h2>
+      <% cart.forEach(function(item) { %>
+        <div class="checkout-summary-row">
+          <span><%= item.name %> x <%= item.qty %></span>
+          <strong><%= (item.price * item.qty).toFixed(2) %> €</strong>
+        </div>
+      <% }) %>
+      <div class="checkout-summary-total">
+        Kokku: <strong><%= total.toFixed(2) %> €</strong>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

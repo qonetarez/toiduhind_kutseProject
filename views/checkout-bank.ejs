@@ -1,0 +1,31 @@
+<%- include('partials/header') %>
+
+<section class="bank-page">
+  <h1><%= bankLabel %> internetipank</h1>
+  <p class="bank-subtitle">Tegemist on testvormiga. Sisesta suvalised andmed ja kinnita makse.</p>
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+
+  <div class="bank-card">
+    <p><strong>Maksja:</strong> <%= draft.firstName %> <%= draft.lastName %></p>
+    <p><strong>Telefon:</strong> <%= draft.phone %></p>
+    <p><strong>Aadress:</strong> <%= draft.address %></p>
+    <p><strong>Summa:</strong> <%= total.toFixed(2) %> €</p>
+
+    <form method="post" action="/checkout/confirm" class="auth-form">
+      <input type="hidden" name="bank" value="<%= bank %>" />
+      <label>
+        Kasutajanimi
+        <input type="text" name="bankUser" required />
+      </label>
+      <label>
+        Isikukood
+        <input type="text" name="bankCode" required />
+      </label>
+      <button type="submit">Kinnita makse</button>
+    </form>
+  </div>
+</section>
+
+<%- include('partials/footer') %>

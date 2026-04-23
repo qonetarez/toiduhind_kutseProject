@@ -1,6 +1,13 @@
 <%- include('partials/header') %>
 
 <section class="cart-page">
+  <% if (paymentError) { %>
+    <div class="alert"><%= paymentError %></div>
+  <% } %>
+  <% if (paymentSuccess) { %>
+    <div class="success-alert"><%= paymentSuccess %></div>
+  <% } %>
+
   <div class="cart-head">
     <h1>Ostukorv</h1>
     <% if (cart.length > 0) { %>
@@ -54,6 +61,16 @@
 
     <div class="cart-total">
       Kokku: <strong><%= total.toFixed(2) %> €</strong>
+    </div>
+
+    <div class="checkout-box">
+      <% if (!currentUser) { %>
+        <p>Ostmiseks logi sisse.</p>
+        <a href="/login" class="btn-primary">Logi sisse ostu jaoks</a>
+      <% } else { %>
+        <p>Jätka ostu vormistamisele, et sisestada tarneandmed ja valida pank.</p>
+        <a href="/checkout" class="btn-primary">Mine maksma</a>
+      <% } %>
     </div>
   <% } %>
 </section>

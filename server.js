@@ -691,6 +691,83 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/**
+ * @openapi
+ * /api/users/role:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Update a user's role by email or username
+ *     description: Local development helper endpoint to promote/demote users.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [role]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 description: User email (required if username is not provided)
+ *               username:
+ *                 type: string
+ *                 description: Username (required if email is not provided)
+ *               role:
+ *                 type: string
+ *                 enum: [user, admin]
+ *     responses:
+ *       200:
+ *         description: Role updated
+ *       400:
+ *         description: Invalid input
+ *       404:
+ *         description: User not found
+ */
+app.post('/api/users/role', express.json(), (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const username = String(req.body.username || '').trim().toLowerCase();
+  const role = String(req.body.role || '').trim().toLowerCase();
+
+  if (!email && !username) {
+    return res.status(400).json({
+      error: 'Provide email or username.'
+    });
+  }
+
+  if (!['user', 'admin'].includes(role)) {
+    return res.status(400).json({
+      error: 'Role must be either "user" or "admin".'
+    });
+  }
+
+  const lookupColumn = email ? 'email' : 'username';
+  const lookupValue = email || username;
+
+  db.run(
+    `UPDATE users SET role = ? WHERE ${lookupColumn} = ?`,
+    [role, lookupValue],
+    function (err) {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({
+          error: 'Server error while updating role.'
+        });
+      }
+
+      if (!this.changes) {
+        return res.status(404).json({
+          error: 'User not found.'
+        });
+      }
+
+      return res.json({
+        message: 'Role updated successfully.',
+        role
+      });
+    }
+  );
+});
+
 // Admin product management
 /**
  * @openapi
@@ -845,8 +922,36 @@ app.post('/admin/products', requireAdmin, (req, res) => {
 app.get('/cart', (req, res) => {
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  res.render('cart', { cart, total });
+  const paymentStatus = req.query.payment;
+  const paymentBank = String(req.query.bank || '').trim().toLowerCase();
+  const paymentBankLabels = {
+    swedbank: 'Swedbank',
+    seb: 'SEB',
+    lhv: 'LHV'
+  };
+
+  res.render('cart', {
+    cart,
+    total,
+    paymentError:
+      paymentStatus === 'error'
+        ? 'Makse ebaonnestus. Kontrolli andmeid ja proovi uuesti.'
+        : null,
+    paymentSuccess:
+      paymentStatus === 'success'
+        ? `Makse on kinnitatud (${paymentBankLabels[paymentBank] || 'internetipank'}). Aitah ostu eest!`
+        : null
+  });
 });
+
+function getBankLabel(bankId) {
+  const labels = {
+    swedbank: 'Swedbank',
+    seb: 'SEB',
+    lhv: 'LHV'
+  };
+  return labels[bankId] || bankId;
+}
 
 /**
  * @openapi
@@ -963,6 +1068,95 @@ app.post('/cart/remove', (req, res) => {
 app.post('/cart/clear', (req, res) => {
   req.session.cart = [];
   res.redirect('/cart');
+});
+
+app.get('/checkout', requireAuth, (req, res) => {
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  if (cart.length === 0) {
+    return res.redirect('/cart');
+  }
+
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const draft = req.session.checkoutDraft || {};
+  return res.render('checkout', {
+    cart,
+    total,
+    error: null,
+    form: {
+      firstName: draft.firstName || '',
+      lastName: draft.lastName || '',
+      phone: draft.phone || '',
+      address: draft.address || '',
+      bank: draft.bank || 'swedbank'
+    }
+  });
+});
+
+app.post('/checkout', requireAuth, (req, res) => {
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  if (cart.length === 0) {
+    return res.redirect('/cart');
+  }
+
+  const firstName = String(req.body.firstName || '').trim();
+  const lastName = String(req.body.lastName || '').trim();
+  const phone = String(req.body.phone || '').trim();
+  const address = String(req.body.address || '').trim();
+  const bank = String(req.body.bank || '').trim().toLowerCase();
+  const allowedBanks = ['swedbank', 'seb', 'lhv'];
+
+  if (!firstName || !lastName || !phone || !address || !allowedBanks.includes(bank)) {
+    const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+    return res.status(400).render('checkout', {
+      cart,
+      total,
+      error: 'Palun täida kõik väljad ja vali korrektne pank.',
+      form: { firstName, lastName, phone, address, bank }
+    });
+  }
+
+  req.session.checkoutDraft = {
+    firstName,
+    lastName,
+    phone,
+    address,
+    bank
+  };
+  return res.redirect(`/checkout/bank/${encodeURIComponent(bank)}`);
+});
+
+app.get('/checkout/bank/:bank', requireAuth, (req, res) => {
+  const bank = String(req.params.bank || '').trim().toLowerCase();
+  const allowedBanks = ['swedbank', 'seb', 'lhv'];
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  const draft = req.session.checkoutDraft || null;
+
+  if (!allowedBanks.includes(bank) || !draft || draft.bank !== bank || cart.length === 0) {
+    return res.redirect('/checkout');
+  }
+
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  return res.render('checkout-bank', {
+    bank,
+    bankLabel: getBankLabel(bank),
+    draft,
+    total,
+    error: null
+  });
+});
+
+app.post('/checkout/confirm', requireAuth, (req, res) => {
+  const bank = String(req.body.bank || '').trim().toLowerCase();
+  const draft = req.session.checkoutDraft || null;
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+
+  if (!draft || draft.bank !== bank || cart.length === 0) {
+    return res.redirect('/checkout');
+  }
+
+  req.session.cart = [];
+  req.session.checkoutDraft = null;
+  return res.redirect(`/cart?payment=success&bank=${encodeURIComponent(bank)}`);
 });
 
 // Product details page
