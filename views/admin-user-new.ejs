@@ -1,0 +1,43 @@
+<%- include('partials/header') %>
+
+<section class="admin-page">
+  <h1>Lisa uus kasutaja</h1>
+
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+
+  <form method="post" action="/admin/users" class="auth-form">
+    <label>
+      Email
+      <input type="email" name="email" required value="<%= form.email || '' %>" />
+    </label>
+
+    <label>
+      Kasutajanimi
+      <input type="text" name="username" required value="<%= form.username || '' %>" />
+    </label>
+
+    <label>
+      Parool
+      <input type="password" name="password" required />
+    </label>
+
+    <label>
+      Roll
+      <select name="role" required>
+        <% roles.forEach(function(role) { %>
+          <option value="<%= role %>" <%= form.role === role ? 'selected' : '' %>><%= role %></option>
+        <% }) %>
+      </select>
+    </label>
+
+    <button type="submit">Loo kasutaja</button>
+  </form>
+
+  <p class="auth-switch">
+    <a href="/admin/users">← Tagasi kasutajate nimekirja</a>
+  </p>
+</section>
+
+<%- include('partials/footer') %>

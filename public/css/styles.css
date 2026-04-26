@@ -153,6 +153,39 @@ a:hover { text-decoration: underline; }
 }
 .auth-form button:hover { background: #16a34a; }
 .auth-switch { font-size: 14px; color: #9ca3af; }
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.inline-form input,
+.inline-form select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #374151;
+  background: #020617;
+  color: #e5e7eb;
+}
+.inline-form button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: #22c55e;
+  color: #022c22;
+  font-weight: 600;
+  cursor: pointer;
+}
+.inline-form button:hover { background: #16a34a; }
+.order-card {
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: #020617;
+}
+.order-card h2 { margin-top: 0; }
+.order-map { margin: 8px 0 10px; }
 
 .alert {
   background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.6);
@@ -199,6 +232,24 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
 }
 .checkout-form button:hover { background: #16a34a; }
+.bank-links-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.bank-link-btn {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #374151;
+  background: #111827;
+  color: #e5e7eb;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bank-link-btn:hover {
+  border-color: #60a5fa;
+  background: #1f2937;
+}
 
 .checkout-layout {
   display: grid;

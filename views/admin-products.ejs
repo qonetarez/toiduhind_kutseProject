@@ -18,6 +18,7 @@
             <% stores.forEach(store => { %>
               <th><%= store.name %></th>
             <% }) %>
+            <th>Tegevus</th>
           </tr>
         </thead>
         <tbody>
@@ -37,6 +38,14 @@
                   <%= typeof price === 'number' ? price.toFixed(2) + ' €' : '-' %>
                 </td>
               <% }) %>
+              <td>
+                <div class="inline-form">
+                  <a href="/admin/products/<%= p.id %>/edit" class="btn-primary">Muuda</a>
+                  <form method="post" action="/admin/products/<%= p.id %>/delete" onsubmit="return confirm('Kustuta see toode?');">
+                    <button type="submit" class="danger-btn">Kustuta</button>
+                  </form>
+                </div>
+              </td>
             </tr>
           <% }) %>
         </tbody>

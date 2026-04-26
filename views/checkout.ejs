@@ -24,15 +24,16 @@
         Aadress
         <input type="text" name="address" required value="<%= form.address %>" />
       </label>
-      <label>
-        Makseviis
-        <select name="bank" required>
-          <option value="swedbank" <%= form.bank === 'swedbank' ? 'selected' : '' %>>Swedbank</option>
-          <option value="seb" <%= form.bank === 'seb' ? 'selected' : '' %>>SEB</option>
-          <option value="lhv" <%= form.bank === 'lhv' ? 'selected' : '' %>>LHV</option>
-        </select>
-      </label>
-      <button type="submit">Jätka panka</button>
+      <div>
+        <p><strong>Vali bank link</strong></p>
+        <div class="bank-links-grid">
+          <button type="submit" name="bank" value="swedbank" class="bank-link-btn">Swedbank</button>
+          <button type="submit" name="bank" value="seb" class="bank-link-btn">SEB</button>
+          <button type="submit" name="bank" value="lhv" class="bank-link-btn">LHV</button>
+          <button type="submit" name="bank" value="luminor" class="bank-link-btn">Luminor</button>
+          <button type="submit" name="bank" value="applepay" class="bank-link-btn">Apple Pay</button>
+        </div>
+      </div>
     </form>
 
     <aside class="checkout-summary">

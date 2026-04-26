@@ -29,7 +29,12 @@
           <a href="/">Avaleht</a>
           <a href="/cart">Korv (<%= cartCount %>)</a>
           <% if (currentUser && currentUser.role === 'admin') { %>
-            <a href="/admin/products">Admin</a>
+            <a href="/admin/products">Tooted</a>
+            <a href="/admin/categories">Kategooriad</a>
+            <a href="/admin/users">Kasutajad</a>
+          <% } %>
+          <% if (currentUser && currentUser.role === 'courier') { %>
+            <a href="/courier/orders">Kuller</a>
           <% } %>
           <% if (currentUser) { %>
             <a href="/profile">Minu profiil</a>

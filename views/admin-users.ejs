@@ -1,0 +1,66 @@
+<%- include('partials/header') %>
+
+<section class="admin-page">
+  <div class="admin-header">
+    <h1>Admin: Kasutajad</h1>
+    <a href="/admin/users/new" class="btn-primary">Lisa kasutaja</a>
+  </div>
+
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="success-alert"><%= success %></div>
+  <% } %>
+
+  <% if (users.length === 0) { %>
+    <p>Kasutajaid ei leitud.</p>
+  <% } else { %>
+    <div class="table-wrapper">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Email</th>
+            <th>Kasutajanimi</th>
+            <th>Roll</th>
+            <th>Muuda</th>
+            <th>Kustuta</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% users.forEach(function(user) { %>
+            <tr>
+              <td><%= user.id %></td>
+              <td><%= user.email %></td>
+              <td><%= user.username || '-' %></td>
+              <td><%= user.role %></td>
+              <td>
+                <form method="post" action="/admin/users/<%= user.id %>" class="inline-form">
+                  <input type="email" name="email" value="<%= user.email %>" required />
+                  <input type="text" name="username" value="<%= user.username || '' %>" required />
+                  <select name="role" required>
+                    <% roles.forEach(function(role) { %>
+                      <option value="<%= role %>" <%= user.role === role ? 'selected' : '' %>>
+                        <%= role %>
+                      </option>
+                    <% }) %>
+                  </select>
+                  <input type="password" name="password" placeholder="Uus parool (valikuline)" />
+                  <button type="submit">Salvesta</button>
+                </form>
+              </td>
+              <td>
+                <form method="post" action="/admin/users/<%= user.id %>/delete" onsubmit="return confirm('Kustuta see kasutaja?');">
+                  <button type="submit" class="danger-btn">Kustuta</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>

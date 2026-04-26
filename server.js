@@ -80,6 +80,29 @@ db.serialize(() => {
     }
   );
 
+  // Categories table
+  db.run(
+    `CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
+
+  // Seed categories if empty
+  db.get('SELECT COUNT(*) AS count FROM categories', (catErr, catRow) => {
+    if (catErr) {
+      console.error('Error counting categories:', catErr.message);
+      return;
+    }
+    if (!catRow || catRow.count > 0) {
+      return;
+    }
+    const catStmt = db.prepare('INSERT INTO categories (id, name) VALUES (?, ?)');
+    defaultCategories.forEach((cat) => catStmt.run(cat.id, cat.name));
+    catStmt.finalize();
+  });
+
   // Products table
   db.run(
     `CREATE TABLE IF NOT EXISTS products (
@@ -112,6 +135,53 @@ db.serialize(() => {
       price REAL NOT NULL,
       recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (product_id) REFERENCES products(id)
+    )`
+  );
+
+  db.run(
+    `CREATE TABLE IF NOT EXISTS orders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      total REAL NOT NULL,
+      bank TEXT NOT NULL,
+      customer_first_name TEXT NOT NULL,
+      customer_last_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      customer_address TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'paid',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`
+  );
+
+  db.run(
+    `CREATE TABLE IF NOT EXISTS order_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      product_slug TEXT NOT NULL,
+      product_name TEXT NOT NULL,
+      store_id TEXT NOT NULL,
+      store_name TEXT NOT NULL,
+      price REAL NOT NULL,
+      qty INTEGER NOT NULL,
+      FOREIGN KEY (order_id) REFERENCES orders(id)
+    )`
+  );
+
+  db.run(
+    `CREATE TABLE IF NOT EXISTS user_cart_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      slug TEXT NOT NULL,
+      name TEXT NOT NULL,
+      image_url TEXT,
+      store_id TEXT NOT NULL,
+      store_name TEXT NOT NULL,
+      price REAL NOT NULL,
+      qty INTEGER NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, slug, store_id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
     )`
   );
 
@@ -191,12 +261,13 @@ const stores = [
   { id: 'coop', name: 'Coop' }
 ];
 
-const categories = [
-  { id: 'all', name: 'Kõik kategooriad' },
+const defaultCategories = [
   { id: 'piimatooted', name: 'Piimatooted' },
   { id: 'leivatooted', name: 'Leivatooted' },
   { id: 'munad', name: 'Munad' }
 ];
+
+const roles = ['user', 'admin', 'courier'];
 
 // Seed products used to populate DB on first run
 const seedProducts = [
@@ -315,6 +386,104 @@ function slugify(str) {
   return cleaned;
 }
 
+function getCategories(callback) {
+  db.all('SELECT id, name FROM categories ORDER BY name ASC', (err, rows) => {
+    if (err) {
+      return callback(err, []);
+    }
+    return callback(null, rows || []);
+  });
+}
+
+function getCategoriesWithAll(callback) {
+  getCategories((err, rows) => {
+    if (err) {
+      return callback(err, []);
+    }
+    return callback(null, [{ id: 'all', name: 'Kõik kategooriad' }, ...rows]);
+  });
+}
+
+function mergeCarts(sessionCart, dbCart) {
+  const mergedMap = new Map();
+  [...dbCart, ...sessionCart].forEach((item) => {
+    const key = `${item.slug}::${item.storeId}`;
+    if (!mergedMap.has(key)) {
+      mergedMap.set(key, { ...item });
+      return;
+    }
+    const existing = mergedMap.get(key);
+    existing.qty = Number(existing.qty || 0) + Number(item.qty || 0);
+    mergedMap.set(key, existing);
+  });
+  return Array.from(mergedMap.values());
+}
+
+function loadCartForUser(userId, callback) {
+  db.all(
+    `SELECT slug, name, image_url, store_id, store_name, price, qty
+     FROM user_cart_items
+     WHERE user_id = ?
+     ORDER BY id ASC`,
+    [userId],
+    (err, rows) => {
+      if (err) {
+        return callback(err, []);
+      }
+      const cart = (rows || []).map((row) => ({
+        slug: row.slug,
+        name: row.name,
+        imageUrl: row.image_url || '',
+        storeId: row.store_id,
+        storeName: row.store_name,
+        price: Number(row.price),
+        qty: Number(row.qty)
+      }));
+      return callback(null, cart);
+    }
+  );
+}
+
+function saveCartForUser(userId, cart, callback) {
+  db.run('DELETE FROM user_cart_items WHERE user_id = ?', [userId], (deleteErr) => {
+    if (deleteErr) {
+      return callback(deleteErr);
+    }
+    if (!Array.isArray(cart) || cart.length === 0) {
+      return callback(null);
+    }
+
+    const stmt = db.prepare(
+      `INSERT INTO user_cart_items
+        (user_id, slug, name, image_url, store_id, store_name, price, qty, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const nowIso = new Date().toISOString();
+    cart.forEach((item) => {
+      stmt.run(
+        userId,
+        item.slug,
+        item.name,
+        item.imageUrl || null,
+        item.storeId,
+        item.storeName,
+        Number(item.price),
+        Number(item.qty),
+        nowIso
+      );
+    });
+    stmt.finalize((insertErr) => callback(insertErr || null));
+  });
+}
+
+function syncCartForCurrentUser(req, callback) {
+  if (!req.session.user || !req.session.user.id) {
+    return callback(null);
+  }
+  const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  return saveCartForUser(req.session.user.id, cart, callback);
+}
+
 function getBestPrice(prices) {
   const entries = Object.entries(prices || {});
   if (entries.length === 0) {
@@ -386,7 +555,13 @@ app.get('/', (req, res) => {
   const activeCategory = req.query.category || 'all';
   const sort = req.query.sort || 'name_asc';
 
-  db.all('SELECT * FROM products', (err, rows) => {
+  getCategoriesWithAll((catErr, categories) => {
+    if (catErr) {
+      console.error(catErr);
+      return res.status(500).send('Serveri viga');
+    }
+
+    db.all('SELECT * FROM products', (err, rows) => {
     if (err) {
       console.error(err);
       return res.status(500).send('Serveri viga');
@@ -451,6 +626,7 @@ app.get('/', (req, res) => {
       categoryCards,
       topProducts
     });
+  });
   });
 });
 
@@ -658,7 +834,23 @@ app.post('/login', (req, res) => {
         username: user.username,
         role: user.role || 'user'
       };
-      return res.redirect('/profile');
+
+      const sessionCart = Array.isArray(req.session.cart) ? req.session.cart : [];
+      loadCartForUser(user.id, (cartErr, dbCart) => {
+        if (cartErr) {
+          console.error(cartErr);
+          return res.redirect('/profile');
+        }
+
+        const mergedCart = mergeCarts(sessionCart, dbCart);
+        req.session.cart = mergedCart;
+        saveCartForUser(user.id, mergedCart, (saveErr) => {
+          if (saveErr) {
+            console.error(saveErr);
+          }
+          return res.redirect('/profile');
+        });
+      });
     }
   );
 });
@@ -691,6 +883,16 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireCourier(req, res, next) {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+  if (req.session.user.role !== 'courier') {
+    return res.status(403).send('Ainult kullerile.');
+  }
+  next();
+}
+
 /**
  * @openapi
  * /api/users/role:
@@ -714,7 +916,7 @@ function requireAdmin(req, res, next) {
  *                 description: Username (required if email is not provided)
  *               role:
  *                 type: string
- *                 enum: [user, admin]
+ *                 enum: [user, admin, courier]
  *     responses:
  *       200:
  *         description: Role updated
@@ -734,9 +936,9 @@ app.post('/api/users/role', express.json(), (req, res) => {
     });
   }
 
-  if (!['user', 'admin'].includes(role)) {
+  if (!roles.includes(role)) {
     return res.status(400).json({
-      error: 'Role must be either "user" or "admin".'
+      error: 'Role must be one of: user, admin, courier.'
     });
   }
 
@@ -805,12 +1007,84 @@ app.get('/admin/products', requireAdmin, (req, res) => {
   });
 });
 
+app.post('/admin/products/:id/delete', requireAdmin, (req, res) => {
+  const productId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(productId)) {
+    return res.redirect('/admin/products');
+  }
+
+  db.run('DELETE FROM price_history WHERE product_id = ?', [productId], (historyErr) => {
+    if (historyErr) {
+      console.error(historyErr);
+      return res.status(500).send('Serveri viga');
+    }
+
+    db.run('DELETE FROM products WHERE id = ?', [productId], (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+      return res.redirect('/admin/products');
+    });
+  });
+});
+
 app.get('/admin/products/new', requireAdmin, (req, res) => {
-  res.render('admin-product-new', {
-    error: null,
-    form: {},
-    stores,
-    categories
+  getCategories((err, categories) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Serveri viga');
+    }
+    res.render('admin-product-new', {
+      error: null,
+      form: {},
+      stores,
+      categories
+    });
+  });
+});
+
+app.get('/admin/products/:id/edit', requireAdmin, (req, res) => {
+  const productId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(productId)) {
+    return res.redirect('/admin/products');
+  }
+
+  getCategories((catErr, categories) => {
+    if (catErr) {
+      console.error(catErr);
+      return res.status(500).send('Serveri viga');
+    }
+
+    db.get('SELECT * FROM products WHERE id = ?', [productId], (err, row) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+      if (!row) {
+        return res.redirect('/admin/products');
+      }
+
+      const parsedPrices = JSON.parse(row.prices_json || '{}');
+      const form = {
+        name: row.name,
+        categoryId: row.category_id,
+        slug: row.slug,
+        imageUrl: row.image_url || ''
+      };
+      stores.forEach((store) => {
+        form[`price_${store.id}`] =
+          typeof parsedPrices[store.id] === 'number' ? String(parsedPrices[store.id]) : '';
+      });
+
+      return res.render('admin-product-edit', {
+        error: null,
+        form,
+        stores,
+        categories,
+        productId
+      });
+    });
   });
 });
 
@@ -840,70 +1114,450 @@ app.get('/admin/products/new', requireAdmin, (req, res) => {
  */
 app.post('/admin/products', requireAdmin, (req, res) => {
   const { name, categoryId, slug: rawSlug, imageUrl } = req.body;
+  getCategories((catErr, categories) => {
+    if (catErr) {
+      console.error(catErr);
+      return res.status(500).send('Serveri viga');
+    }
 
-  if (!name || !categoryId) {
-    return res.render('admin-product-new', {
-      error: 'Nimi ja kategooria on kohustuslikud.',
-      form: req.body,
-      stores,
-      categories
+    if (!name || !categoryId) {
+      return res.render('admin-product-new', {
+        error: 'Nimi ja kategooria on kohustuslikud.',
+        form: req.body,
+        stores,
+        categories
+      });
+    }
+
+    const categoryObj = categories.find((c) => c.id === categoryId);
+    if (!categoryObj) {
+      return res.render('admin-product-new', {
+        error: 'Valitud kategooriat ei leitud.',
+        form: req.body,
+        stores,
+        categories
+      });
+    }
+    const category = categoryObj.name;
+    const slug = rawSlug && rawSlug.trim().length > 0 ? slugify(rawSlug) : slugify(name);
+
+    const prices = {};
+    stores.forEach((store) => {
+      const raw = req.body[`price_${store.id}`];
+      if (raw !== undefined && raw !== '') {
+        const num = parseFloat(raw);
+        if (!Number.isNaN(num)) {
+          prices[store.id] = num;
+        }
+      }
     });
+
+    if (Object.keys(prices).length === 0) {
+      return res.render('admin-product-new', {
+        error: 'Lisa vähemalt ühe poe hind.',
+        form: req.body,
+        stores,
+        categories
+      });
+    }
+
+    db.run(
+      'INSERT INTO products (slug, name, category, category_id, image_url, prices_json) VALUES (?, ?, ?, ?, ?, ?)',
+      [slug, name, category, categoryId, String(imageUrl || '').trim() || null, JSON.stringify(prices)],
+      function (err) {
+        if (err) {
+          console.error(err);
+          const isUnique =
+            String(err.message).includes('UNIQUE') ||
+            String(err.message).includes('unique');
+          return res.render('admin-product-new', {
+            error: isUnique
+              ? 'Sellise slugiga toode on juba olemas.'
+              : 'Serveri viga. Proovi hiljem uuesti.',
+            form: req.body,
+            stores,
+            categories
+          });
+        }
+
+        const productId = this.lastID;
+        const historyStmt = db.prepare(
+          'INSERT INTO price_history (product_id, store_id, price, recorded_at) VALUES (?, ?, ?, ?)'
+        );
+        const nowIso = new Date().toISOString();
+        Object.entries(prices).forEach(([storeId, price]) => {
+          historyStmt.run(productId, storeId, Number(price), nowIso);
+        });
+        historyStmt.finalize(() => {
+          return res.redirect('/admin/products');
+        });
+      }
+    );
+  });
+});
+
+app.post('/admin/products/:id', requireAdmin, (req, res) => {
+  const productId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(productId)) {
+    return res.redirect('/admin/products');
   }
 
-  const categoryObj = categories.find((c) => c.id === categoryId);
-  const category = categoryObj ? categoryObj.name : categoryId;
-  const slug = rawSlug && rawSlug.trim().length > 0 ? slugify(rawSlug) : slugify(name);
-
-  const prices = {};
-  stores.forEach((store) => {
-    const raw = req.body[`price_${store.id}`];
-    if (raw !== undefined && raw !== '') {
-      const num = parseFloat(raw);
-      if (!Number.isNaN(num)) {
-        prices[store.id] = num;
-      }
+  const { name, categoryId, slug: rawSlug, imageUrl } = req.body;
+  getCategories((catErr, categories) => {
+    if (catErr) {
+      console.error(catErr);
+      return res.status(500).send('Serveri viga');
     }
-  });
 
-  if (Object.keys(prices).length === 0) {
-    return res.render('admin-product-new', {
-      error: 'Lisa vähemalt ühe poe hind.',
-      form: req.body,
-      stores,
-      categories
+    const renderEditError = (errorMessage) =>
+      res.render('admin-product-edit', {
+        error: errorMessage,
+        form: req.body,
+        stores,
+        categories,
+        productId
+      });
+
+    if (!name || !categoryId) {
+      return renderEditError('Nimi ja kategooria on kohustuslikud.');
+    }
+
+    const categoryObj = categories.find((c) => c.id === categoryId);
+    if (!categoryObj) {
+      return renderEditError('Valitud kategooriat ei leitud.');
+    }
+    const category = categoryObj.name;
+    const slug = rawSlug && rawSlug.trim().length > 0 ? slugify(rawSlug) : slugify(name);
+
+    const prices = {};
+    stores.forEach((store) => {
+      const raw = req.body[`price_${store.id}`];
+      if (raw !== undefined && raw !== '') {
+        const num = parseFloat(raw);
+        if (!Number.isNaN(num)) {
+          prices[store.id] = num;
+        }
+      }
     });
+
+    if (Object.keys(prices).length === 0) {
+      return renderEditError('Lisa vähemalt ühe poe hind.');
+    }
+
+    db.run(
+      `UPDATE products
+       SET slug = ?, name = ?, category = ?, category_id = ?, image_url = ?, prices_json = ?
+       WHERE id = ?`,
+      [
+        slug,
+        name,
+        category,
+        categoryId,
+        String(imageUrl || '').trim() || null,
+        JSON.stringify(prices),
+        productId
+      ],
+      function (err) {
+        if (err) {
+          console.error(err);
+          const isUnique =
+            String(err.message).includes('UNIQUE') ||
+            String(err.message).includes('unique');
+          return renderEditError(
+            isUnique ? 'Sellise slugiga toode on juba olemas.' : 'Serveri viga. Proovi hiljem uuesti.'
+          );
+        }
+        if (!this.changes) {
+          return res.redirect('/admin/products');
+        }
+
+        db.run('DELETE FROM price_history WHERE product_id = ?', [productId], (deleteErr) => {
+          if (deleteErr) {
+            console.error(deleteErr);
+            return res.status(500).send('Serveri viga');
+          }
+
+          const historyStmt = db.prepare(
+            'INSERT INTO price_history (product_id, store_id, price, recorded_at) VALUES (?, ?, ?, ?)'
+          );
+          const nowIso = new Date().toISOString();
+          Object.entries(prices).forEach(([storeId, price]) => {
+            historyStmt.run(productId, storeId, Number(price), nowIso);
+          });
+          historyStmt.finalize(() => res.redirect('/admin/products'));
+        });
+      }
+    );
+  });
+});
+
+app.get('/admin/categories', requireAdmin, (req, res) => {
+  getCategories((err, categories) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Serveri viga');
+    }
+    res.render('admin-categories', {
+      categories,
+      error: req.query.error || null,
+      success: req.query.success || null
+    });
+  });
+});
+
+app.post('/admin/categories', requireAdmin, (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const rawId = String(req.body.id || '').trim();
+  const id = slugify(rawId || name);
+  if (!name || !id) {
+    return res.redirect('/admin/categories?error=Taida+koik+valjad');
+  }
+
+  db.run('INSERT INTO categories (id, name) VALUES (?, ?)', [id, name], (err) => {
+    if (err) {
+      console.error(err);
+      return res.redirect('/admin/categories?error=Kategooriat+ei+saanud+lisada');
+    }
+    return res.redirect('/admin/categories?success=Kategooria+lisatud');
+  });
+});
+
+app.post('/admin/categories/:id', requireAdmin, (req, res) => {
+  const currentId = String(req.params.id || '').trim();
+  const name = String(req.body.name || '').trim();
+  const newId = slugify(String(req.body.id || '').trim());
+
+  if (!currentId || !name || !newId) {
+    return res.redirect('/admin/categories?error=Vale+sisend+kategooria+uuendamisel');
   }
 
   db.run(
-    'INSERT INTO products (slug, name, category, category_id, image_url, prices_json) VALUES (?, ?, ?, ?, ?, ?)',
-    [slug, name, category, categoryId, String(imageUrl || '').trim() || null, JSON.stringify(prices)],
+    'UPDATE categories SET id = ?, name = ? WHERE id = ?',
+    [newId, name, currentId],
     function (err) {
       if (err) {
         console.error(err);
-        const isUnique =
-          String(err.message).includes('UNIQUE') ||
-          String(err.message).includes('unique');
-        return res.render('admin-product-new', {
-          error: isUnique
-            ? 'Sellise slugiga toode on juba olemas.'
-            : 'Serveri viga. Proovi hiljem uuesti.',
-          form: req.body,
-          stores,
-          categories
-        });
+        return res.redirect('/admin/categories?error=Kategooriat+ei+saanud+muuta');
+      }
+      if (!this.changes) {
+        return res.redirect('/admin/categories?error=Kategooriat+ei+leitud');
       }
 
-      const productId = this.lastID;
-      const historyStmt = db.prepare(
-        'INSERT INTO price_history (product_id, store_id, price, recorded_at) VALUES (?, ?, ?, ?)'
+      db.run(
+        'UPDATE products SET category_id = ?, category = ? WHERE category_id = ?',
+        [newId, name, currentId],
+        (productErr) => {
+          if (productErr) {
+            console.error(productErr);
+            return res.redirect('/admin/categories?error=Toodete+kategooriat+ei+saanud+uuendada');
+          }
+          return res.redirect('/admin/categories?success=Kategooria+uuendatud');
+        }
       );
-      const nowIso = new Date().toISOString();
-      Object.entries(prices).forEach(([storeId, price]) => {
-        historyStmt.run(productId, storeId, Number(price), nowIso);
+    }
+  );
+});
+
+app.post('/admin/categories/:id/delete', requireAdmin, (req, res) => {
+  const categoryId = String(req.params.id || '').trim();
+  if (!categoryId) {
+    return res.redirect('/admin/categories?error=Vale+kategooria');
+  }
+
+  db.get(
+    'SELECT COUNT(*) AS count FROM products WHERE category_id = ?',
+    [categoryId],
+    (countErr, row) => {
+      if (countErr) {
+        console.error(countErr);
+        return res.redirect('/admin/categories?error=Serveri+viga');
+      }
+
+      if (row && row.count > 0) {
+        return res.redirect('/admin/categories?error=Kategooriat+ei+saa+kustutada,+tooted+on+sellega+seotud');
+      }
+
+      db.run('DELETE FROM categories WHERE id = ?', [categoryId], function (err) {
+        if (err) {
+          console.error(err);
+          return res.redirect('/admin/categories?error=Kategooriat+ei+saanud+kustutada');
+        }
+        if (!this.changes) {
+          return res.redirect('/admin/categories?error=Kategooriat+ei+leitud');
+        }
+        return res.redirect('/admin/categories?success=Kategooria+kustutatud');
       });
-      historyStmt.finalize(() => {
-        return res.redirect('/admin/products');
+    }
+  );
+});
+
+app.get('/admin/users', requireAdmin, (req, res) => {
+  db.all(
+    'SELECT id, email, username, role, created_at FROM users ORDER BY created_at DESC',
+    (err, users) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+      res.render('admin-users', {
+        users: users || [],
+        roles,
+        error: req.query.error || null,
+        success: req.query.success || null
       });
+    }
+  );
+});
+
+app.get('/admin/users/new', requireAdmin, (req, res) => {
+  res.render('admin-user-new', {
+    roles,
+    error: null,
+    form: { email: '', username: '', role: 'user' }
+  });
+});
+
+app.post('/admin/users', requireAdmin, (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const username = String(req.body.username || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  const role = String(req.body.role || '').trim().toLowerCase();
+
+  if (!email || !username || !password || !roles.includes(role)) {
+    return res.render('admin-user-new', {
+      roles,
+      error: 'Taida koik valjad ja vali korrektne roll.',
+      form: { email, username, role }
+    });
+  }
+
+  const passwordHash = bcrypt.hashSync(password, 10);
+  db.run(
+    'INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)',
+    [email, username, passwordHash, role],
+    (err) => {
+      if (err) {
+        console.error(err);
+        return res.render('admin-user-new', {
+          roles,
+          error: 'Kasutajat ei saanud lisada (email voi kasutajanimi voib olla juba olemas).',
+          form: { email, username, role }
+        });
+      }
+      return res.redirect('/admin/users?success=Kasutaja+lisatud');
+    }
+  );
+});
+
+app.post('/admin/users/:id', requireAdmin, (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const username = String(req.body.username || '').trim().toLowerCase();
+  const role = String(req.body.role || '').trim().toLowerCase();
+  const password = String(req.body.password || '').trim();
+
+  if (!Number.isInteger(userId) || !email || !username || !roles.includes(role)) {
+    return res.redirect('/admin/users?error=Vale+sisend+kasutaja+uuendamisel');
+  }
+
+  const applyUpdate = (passwordHash) => {
+    const sql = passwordHash
+      ? 'UPDATE users SET email = ?, username = ?, role = ?, password_hash = ? WHERE id = ?'
+      : 'UPDATE users SET email = ?, username = ?, role = ? WHERE id = ?';
+    const params = passwordHash
+      ? [email, username, role, passwordHash, userId]
+      : [email, username, role, userId];
+
+    db.run(sql, params, function (err) {
+      if (err) {
+        console.error(err);
+        return res.redirect('/admin/users?error=Kasutajat+ei+saanud+uuendada');
+      }
+      if (!this.changes) {
+        return res.redirect('/admin/users?error=Kasutajat+ei+leitud');
+      }
+
+      if (req.session.user && req.session.user.id === userId) {
+        req.session.user.email = email;
+        req.session.user.username = username;
+        req.session.user.role = role;
+      }
+      return res.redirect('/admin/users?success=Kasutaja+uuendatud');
+    });
+  };
+
+  if (password) {
+    return applyUpdate(bcrypt.hashSync(password, 10));
+  }
+  return applyUpdate(null);
+});
+
+app.post('/admin/users/:id/delete', requireAdmin, (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(userId)) {
+    return res.redirect('/admin/users?error=Vale+kasutaja+ID');
+  }
+
+  if (req.session.user && req.session.user.id === userId) {
+    return res.redirect('/admin/users?error=Sa+ei+saa+enda+kontot+kustutada');
+  }
+
+  db.run('DELETE FROM users WHERE id = ?', [userId], function (err) {
+    if (err) {
+      console.error(err);
+      return res.redirect('/admin/users?error=Kasutajat+ei+saanud+kustutada');
+    }
+    if (!this.changes) {
+      return res.redirect('/admin/users?error=Kasutajat+ei+leitud');
+    }
+    return res.redirect('/admin/users?success=Kasutaja+kustutatud');
+  });
+});
+
+app.get('/courier/orders', requireCourier, (req, res) => {
+  db.all(
+    `SELECT o.*, u.email AS user_email, u.username AS user_username
+     FROM orders o
+     LEFT JOIN users u ON u.id = o.user_id
+     WHERE o.status = 'paid'
+     ORDER BY o.created_at DESC`,
+    (err, orders) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+
+      if (!orders || orders.length === 0) {
+        return res.render('courier-orders', { orders: [] });
+      }
+
+      const orderIds = orders.map((o) => o.id);
+      const placeholders = orderIds.map(() => '?').join(',');
+      db.all(
+        `SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY id ASC`,
+        orderIds,
+        (itemsErr, items) => {
+          if (itemsErr) {
+            console.error(itemsErr);
+            return res.status(500).send('Serveri viga');
+          }
+
+          const itemsByOrder = {};
+          (items || []).forEach((item) => {
+            if (!itemsByOrder[item.order_id]) {
+              itemsByOrder[item.order_id] = [];
+            }
+            itemsByOrder[item.order_id].push(item);
+          });
+
+          const withItems = orders.map((order) => ({
+            ...order,
+            items: itemsByOrder[order.id] || []
+          }));
+
+          return res.render('courier-orders', { orders: withItems });
+        }
+      );
     }
   );
 });
@@ -927,7 +1581,9 @@ app.get('/cart', (req, res) => {
   const paymentBankLabels = {
     swedbank: 'Swedbank',
     seb: 'SEB',
-    lhv: 'LHV'
+    lhv: 'LHV',
+    luminor: 'Luminor',
+    applepay: 'Apple Pay'
   };
 
   res.render('cart', {
@@ -948,9 +1604,22 @@ function getBankLabel(bankId) {
   const labels = {
     swedbank: 'Swedbank',
     seb: 'SEB',
-    lhv: 'LHV'
+    lhv: 'LHV',
+    luminor: 'Luminor',
+    applepay: 'Apple Pay'
   };
   return labels[bankId] || bankId;
+}
+
+function getExternalBankUrl(bankId) {
+  const links = {
+    swedbank: 'https://www.swedbank.ee/private',
+    seb: 'https://www.seb.ee',
+    lhv: 'https://www.lhv.ee',
+    luminor: 'https://www.luminor.ee',
+    applepay: 'https://www.apple.com/apple-pay/'
+  };
+  return links[bankId] || null;
 }
 
 /**
@@ -1022,7 +1691,12 @@ app.post('/cart/add', (req, res) => {
     }
 
     const backUrl = req.body.backUrl || `/product/${row.slug}`;
-    return res.redirect(backUrl);
+    syncCartForCurrentUser(req, (syncErr) => {
+      if (syncErr) {
+        console.error(syncErr);
+      }
+      return res.redirect(backUrl);
+    });
   });
 });
 
@@ -1052,7 +1726,12 @@ app.post('/cart/remove', (req, res) => {
   const { slug, storeId } = req.body;
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
   req.session.cart = cart.filter((item) => !(item.slug === slug && item.storeId === storeId));
-  res.redirect('/cart');
+  syncCartForCurrentUser(req, (syncErr) => {
+    if (syncErr) {
+      console.error(syncErr);
+    }
+    res.redirect('/cart');
+  });
 });
 
 /**
@@ -1067,7 +1746,12 @@ app.post('/cart/remove', (req, res) => {
  */
 app.post('/cart/clear', (req, res) => {
   req.session.cart = [];
-  res.redirect('/cart');
+  syncCartForCurrentUser(req, (syncErr) => {
+    if (syncErr) {
+      console.error(syncErr);
+    }
+    res.redirect('/cart');
+  });
 });
 
 app.get('/checkout', requireAuth, (req, res) => {
@@ -1103,7 +1787,7 @@ app.post('/checkout', requireAuth, (req, res) => {
   const phone = String(req.body.phone || '').trim();
   const address = String(req.body.address || '').trim();
   const bank = String(req.body.bank || '').trim().toLowerCase();
-  const allowedBanks = ['swedbank', 'seb', 'lhv'];
+  const allowedBanks = ['swedbank', 'seb', 'lhv', 'luminor', 'applepay'];
 
   if (!firstName || !lastName || !phone || !address || !allowedBanks.includes(bank)) {
     const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -1127,12 +1811,17 @@ app.post('/checkout', requireAuth, (req, res) => {
 
 app.get('/checkout/bank/:bank', requireAuth, (req, res) => {
   const bank = String(req.params.bank || '').trim().toLowerCase();
-  const allowedBanks = ['swedbank', 'seb', 'lhv'];
+  const allowedBanks = ['swedbank', 'seb', 'lhv', 'luminor', 'applepay'];
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
   const draft = req.session.checkoutDraft || null;
 
   if (!allowedBanks.includes(bank) || !draft || draft.bank !== bank || cart.length === 0) {
     return res.redirect('/checkout');
+  }
+
+  const externalBankUrl = getExternalBankUrl(bank);
+  if (externalBankUrl) {
+    return res.redirect(externalBankUrl);
   }
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
@@ -1154,9 +1843,62 @@ app.post('/checkout/confirm', requireAuth, (req, res) => {
     return res.redirect('/checkout');
   }
 
-  req.session.cart = [];
-  req.session.checkoutDraft = null;
-  return res.redirect(`/cart?payment=success&bank=${encodeURIComponent(bank)}`);
+  const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  db.run(
+    `INSERT INTO orders
+      (user_id, total, bank, customer_first_name, customer_last_name, customer_phone, customer_address, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'paid')`,
+    [
+      req.session.user.id,
+      total,
+      bank,
+      draft.firstName,
+      draft.lastName,
+      draft.phone,
+      draft.address
+    ],
+    function (err) {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+
+      const orderId = this.lastID;
+      const itemStmt = db.prepare(
+        `INSERT INTO order_items
+          (order_id, product_slug, product_name, store_id, store_name, price, qty)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      cart.forEach((item) => {
+        itemStmt.run(
+          orderId,
+          item.slug,
+          item.name,
+          item.storeId,
+          item.storeName,
+          Number(item.price),
+          Number(item.qty)
+        );
+      });
+
+      itemStmt.finalize((itemsErr) => {
+        if (itemsErr) {
+          console.error(itemsErr);
+          return res.status(500).send('Serveri viga');
+        }
+
+        req.session.cart = [];
+        req.session.checkoutDraft = null;
+        syncCartForCurrentUser(req, (syncErr) => {
+          if (syncErr) {
+            console.error(syncErr);
+          }
+          return res.redirect(`/cart?payment=success&bank=${encodeURIComponent(bank)}`);
+        });
+      });
+    }
+  );
 });
 
 // Product details page
