@@ -36,6 +36,9 @@
           <% if (currentUser && currentUser.role === 'courier') { %>
             <a href="/courier/orders">Kuller</a>
           <% } %>
+          <% if (currentUser && currentUser.role === 'support') { %>
+            <a href="/support/orders">Tugi</a>
+          <% } %>
           <% if (currentUser) { %>
             <a href="/profile">Minu profiil</a>
             <form method="post" action="/logout" class="nav-logout-form">

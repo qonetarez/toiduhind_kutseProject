@@ -1,15 +1,48 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const multer = require('multer');
 const session = require('express-session');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const returnUploadsDir = path.join(__dirname, 'public', 'uploads', 'returns');
+fs.mkdirSync(returnUploadsDir, { recursive: true });
+
+const returnPhotoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, returnUploadsDir),
+  filename: (_req, file, cb) => {
+    const extension = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+    const safeExtension = ['.jpg', '.jpeg', '.png', '.webp'].includes(extension) ? extension : '.jpg';
+    cb(null, `return-${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExtension}`);
+  }
+});
+
+const returnPhotoUpload = multer({
+  storage: returnPhotoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!String(file.mimetype || '').startsWith('image/')) {
+      return cb(new Error('Ainult pildifailid on lubatud.'));
+    }
+    return cb(null, true);
+  }
+});
+
+function handleReturnPhotoUpload(req, res, next) {
+  returnPhotoUpload.single('returnPhoto')(req, res, (err) => {
+    if (err) {
+      return res.redirect('/profile?error=Foto+uleslaadimine+ebaonnestus');
+    }
+    return next();
+  });
+}
 
 const swaggerOptions = {
   definition: {
@@ -176,6 +209,33 @@ db.serialize(() => {
   );
 
   db.run(
+    'ALTER TABLE orders ADD COLUMN cancellation_reason TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding cancellation_reason column:', err.message);
+      }
+    }
+  );
+
+  db.run(
+    'ALTER TABLE orders ADD COLUMN return_reason TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding return_reason column:', err.message);
+      }
+    }
+  );
+
+  db.run(
+    'ALTER TABLE orders ADD COLUMN return_photo_url TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding return_photo_url column:', err.message);
+      }
+    }
+  );
+
+  db.run(
     `CREATE TABLE IF NOT EXISTS order_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER NOT NULL,
@@ -288,7 +348,7 @@ const defaultCategories = [
   { id: 'munad', name: 'Munad' }
 ];
 
-const roles = ['user', 'admin', 'courier'];
+const roles = ['user', 'admin', 'courier', 'support'];
 
 // Seed products used to populate DB on first run
 const seedProducts = [
@@ -895,6 +955,8 @@ app.get('/profile', requireAuth, (req, res) => {
   if (!userId) {
     return res.redirect('/login');
   }
+  const profileError = String(req.query.error || '').trim() || null;
+  const profileSuccess = String(req.query.success || '').trim() || null;
 
   db.all(
     `SELECT *
@@ -909,7 +971,12 @@ app.get('/profile', requireAuth, (req, res) => {
       }
 
       if (!orders || orders.length === 0) {
-        return res.render('profile', { activeOrders: [], previousOrders: [] });
+        return res.render('profile', {
+          activeOrders: [],
+          previousOrders: [],
+          error: profileError,
+          success: profileSuccess
+        });
       }
 
       const orderIds = orders.map((o) => o.id);
@@ -955,12 +1022,25 @@ app.get('/profile', requireAuth, (req, res) => {
           }));
 
           const activeOrders = withUserOrderNumber.filter(
-            (order) => order.status !== 'delivered' && order.status !== 'cancelled_by_user'
+            (order) =>
+              order.status !== 'delivered' &&
+              order.status !== 'cancelled_by_user' &&
+              order.status !== 'return_requested'
           );
           const previousOrders = withUserOrderNumber
-            .filter((order) => order.status === 'delivered' || order.status === 'cancelled_by_user')
+            .filter(
+              (order) =>
+                order.status === 'delivered' ||
+                order.status === 'cancelled_by_user' ||
+                order.status === 'return_requested'
+            )
             .slice(0, 5);
-          return res.render('profile', { activeOrders, previousOrders });
+          return res.render('profile', {
+            activeOrders,
+            previousOrders,
+            error: profileError,
+            success: profileSuccess
+          });
         }
       );
     }
@@ -970,8 +1050,12 @@ app.get('/profile', requireAuth, (req, res) => {
 function cancelOrderForCurrentUser(req, res) {
   const orderId = parseInt(req.params.id, 10);
   const userId = req.session.user && req.session.user.id;
+  const cancellationReason = String(req.body.reason || '').trim();
   if (!Number.isInteger(orderId) || !userId) {
     return res.redirect('/profile');
+  }
+  if (!cancellationReason) {
+    return res.redirect('/profile?error=Palun+lisa+tuhistamise+pohjus');
   }
 
   db.get('SELECT id, status FROM orders WHERE id = ? AND user_id = ?', [orderId, userId], (err, order) => {
@@ -990,14 +1074,14 @@ function cancelOrderForCurrentUser(req, res) {
     }
 
     db.run(
-      "UPDATE orders SET status = 'cancelled_by_user' WHERE id = ? AND user_id = ?",
-      [orderId, userId],
+      "UPDATE orders SET status = 'cancelled_by_user', cancellation_reason = ? WHERE id = ? AND user_id = ?",
+      [cancellationReason, orderId, userId],
       (updateErr) => {
         if (updateErr) {
           console.error(updateErr);
           return res.status(500).send('Serveri viga');
         }
-        return res.redirect('/profile');
+        return res.redirect('/profile?success=Tellimus+tuhistatud');
       }
     );
   });
@@ -1008,7 +1092,53 @@ app.post('/orders/:id/cancel', requireAuth, (req, res) => {
 });
 
 app.get('/orders/:id/cancel', requireAuth, (req, res) => {
-  return cancelOrderForCurrentUser(req, res);
+  return res.redirect('/profile');
+});
+
+app.post('/orders/:id/return', requireAuth, handleReturnPhotoUpload, (req, res) => {
+  const orderId = parseInt(req.params.id, 10);
+  const userId = req.session.user && req.session.user.id;
+  const returnReason = String(req.body.returnReason || '').trim();
+  const returnPhotoUrl = req.file ? `/uploads/returns/${req.file.filename}` : null;
+  if (!Number.isInteger(orderId) || !userId) {
+    return res.redirect('/profile');
+  }
+  if (!returnReason) {
+    return res.redirect('/profile?error=Palun+lisa+tagastuse+pohjus');
+  }
+
+  db.get(
+    'SELECT id, status FROM orders WHERE id = ? AND user_id = ?',
+    [orderId, userId],
+    (err, order) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+      if (!order) {
+        return res.redirect('/profile');
+      }
+      if (String(order.status || '').trim().toLowerCase() !== 'delivered') {
+        return res.redirect('/profile?error=Tagastust+saab+taotleda+ainult+kohale+toimetatud+tellimusele');
+      }
+
+      db.run(
+        `UPDATE orders
+         SET status = 'return_requested',
+             return_reason = ?,
+             return_photo_url = ?
+         WHERE id = ? AND user_id = ?`,
+        [returnReason, returnPhotoUrl, orderId, userId],
+        (updateErr) => {
+          if (updateErr) {
+            console.error(updateErr);
+            return res.status(500).send('Serveri viga');
+          }
+          return res.redirect('/profile?success=Tagastussoov+on+saadetud');
+        }
+      );
+    }
+  );
 });
 
 app.post('/orders/:id/repeat', requireAuth, (req, res) => {
@@ -1096,6 +1226,16 @@ function requireCourier(req, res, next) {
   }
   if (req.session.user.role !== 'courier') {
     return res.status(403).send('Ainult kullerile.');
+  }
+  next();
+}
+
+function requireSupport(req, res, next) {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+  if (req.session.user.role !== 'support') {
+    return res.status(403).send('Ainult toele.');
   }
   next();
 }
@@ -1726,7 +1866,7 @@ app.get('/courier/orders', requireCourier, (req, res) => {
     `SELECT o.*, u.email AS user_email, u.username AS user_username
      FROM orders o
      LEFT JOIN users u ON u.id = o.user_id
-     WHERE o.status NOT IN ('delivered', 'cancelled_by_user')
+     WHERE o.status NOT IN ('delivered', 'cancelled_by_user', 'return_requested')
      ORDER BY o.created_at DESC`,
     (err, orders) => {
       if (err) {
@@ -1763,6 +1903,53 @@ app.get('/courier/orders', requireCourier, (req, res) => {
           }));
 
           return res.render('courier-orders', { orders: withItems });
+        }
+      );
+    }
+  );
+});
+
+app.get('/support/orders', requireSupport, (req, res) => {
+  db.all(
+    `SELECT o.*, u.email AS user_email, u.username AS user_username
+     FROM orders o
+     LEFT JOIN users u ON u.id = o.user_id
+     WHERE o.status IN ('cancelled_by_user', 'return_requested')
+     ORDER BY o.created_at DESC`,
+    (err, orders) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+
+      if (!orders || orders.length === 0) {
+        return res.render('support-orders', { orders: [] });
+      }
+
+      const orderIds = orders.map((o) => o.id);
+      const placeholders = orderIds.map(() => '?').join(',');
+      db.all(
+        `SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY id ASC`,
+        orderIds,
+        (itemsErr, items) => {
+          if (itemsErr) {
+            console.error(itemsErr);
+            return res.status(500).send('Serveri viga');
+          }
+
+          const itemsByOrder = {};
+          (items || []).forEach((item) => {
+            if (!itemsByOrder[item.order_id]) {
+              itemsByOrder[item.order_id] = [];
+            }
+            itemsByOrder[item.order_id].push(item);
+          });
+
+          const withItems = orders.map((order) => ({
+            ...order,
+            items: itemsByOrder[order.id] || []
+          }));
+          return res.render('support-orders', { orders: withItems });
         }
       );
     }

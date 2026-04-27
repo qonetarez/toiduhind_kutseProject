@@ -2,6 +2,12 @@
 
 <section class="profile-page">
   <h1>Minu profiil</h1>
+  <% if (error) { %>
+    <div class="alert"><%= error %></div>
+  <% } %>
+  <% if (success) { %>
+    <div class="success-alert"><%= success %></div>
+  <% } %>
   <% if (currentUser.username) { %>
     <p>Kasutajanimi: <strong><%= currentUser.username %></strong></p>
   <% } %>
@@ -31,7 +37,11 @@
           Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
         </p>
         <% if (order.status === 'paid' || order.status === 'in_progress') { %>
-          <form method="post" action="/orders/<%= order.id %>/cancel" style="margin-bottom:10px;">
+          <form method="post" action="/orders/<%= order.id %>/cancel" class="order-action-form">
+            <label>
+              Tühistamise põhjus
+              <textarea name="reason" required placeholder="Kirjelda, miks soovid tellimuse tühistada"></textarea>
+            </label>
             <button type="submit" class="danger-btn">Tühista tellimus</button>
           </form>
         <% } %>
@@ -71,10 +81,40 @@
         <p>
           Kuupäev: <%= new Date(order.created_at).toLocaleString('et-EE') %><br />
           Staatus:
-          <%= order.status === 'cancelled_by_user' ? 'Kasutaja tühistas' : 'Kohale toimetatud' %><br />
+          <%= order.status === 'cancelled_by_user'
+            ? 'Kasutaja tühistas'
+            : order.status === 'return_requested'
+              ? 'Tagastussoov esitatud'
+              : 'Kohale toimetatud' %><br />
           Pank: <%= order.bank %><br />
           Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
         </p>
+        <% if (order.status === 'cancelled_by_user' && order.cancellation_reason) { %>
+          <p><strong>Tühistamise põhjus:</strong> <%= order.cancellation_reason %></p>
+        <% } %>
+        <% if (order.status === 'return_requested') { %>
+          <p><strong>Tagastuse põhjus:</strong> <%= order.return_reason || '-' %></p>
+          <% if (order.return_photo_url) { %>
+            <p>
+              <strong>Tagastuse foto:</strong>
+              <a href="<%= order.return_photo_url %>" target="_blank" rel="noopener noreferrer">Ava foto</a>
+            </p>
+            <p><img src="<%= order.return_photo_url %>" alt="Tagastuse foto" class="return-photo-preview" /></p>
+          <% } %>
+        <% } %>
+        <% if (order.status === 'delivered') { %>
+          <form method="post" action="/orders/<%= order.id %>/return" class="order-action-form" enctype="multipart/form-data">
+            <label>
+              Tagastuse põhjus
+              <textarea name="returnReason" required placeholder="Kirjelda tagastuse põhjust"></textarea>
+            </label>
+            <label>
+              Lisa foto (valikuline)
+              <input type="file" name="returnPhoto" accept="image/*" />
+            </label>
+            <button type="submit" class="danger-btn">Tagasta tellimus</button>
+          </form>
+        <% } %>
         <form method="post" action="/orders/<%= order.id %>/repeat" style="margin-bottom: 10px;">
           <button type="submit" class="btn-primary">Korda tellimust</button>
         </form>

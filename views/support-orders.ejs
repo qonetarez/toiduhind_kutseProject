@@ -1,0 +1,68 @@
+<%- include('partials/header') %>
+
+<section class="admin-page">
+  <h1>Tugi: tühistatud ja tagastatud tellimused</h1>
+
+  <% if (orders.length === 0) { %>
+    <p>Hetkel pole tühistatud ega tagastuse tellimusi.</p>
+  <% } else { %>
+    <% orders.forEach(function(order) { %>
+      <article class="order-card">
+        <h2>Tellimus #<%= order.id %></h2>
+        <p>
+          Staatus:
+          <strong>
+            <%= order.status === 'return_requested' ? 'Tagastussoov esitatud' : 'Kasutaja tühistas' %>
+          </strong>
+        </p>
+        <p>
+          Klient: <strong><%= order.customer_first_name %> <%= order.customer_last_name %></strong><br />
+          Kasutaja: <%= order.user_username || order.user_email || '-' %><br />
+          Telefon: <%= order.customer_phone %><br />
+          Aadress: <%= order.customer_address %>
+        </p>
+        <p>
+          Pank: <%= order.bank %><br />
+          Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
+        </p>
+        <% if (order.cancellation_reason) { %>
+          <p><strong>Tühistamise põhjus:</strong> <%= order.cancellation_reason %></p>
+        <% } %>
+        <% if (order.return_reason) { %>
+          <p><strong>Tagastuse põhjus:</strong> <%= order.return_reason %></p>
+        <% } %>
+        <% if (order.return_photo_url) { %>
+          <p>
+            <strong>Tagastuse foto:</strong>
+            <a href="<%= order.return_photo_url %>" target="_blank" rel="noopener noreferrer">Ava foto</a>
+          </p>
+          <p><img src="<%= order.return_photo_url %>" alt="Tagastuse foto" class="return-photo-preview" /></p>
+        <% } %>
+        <div class="table-wrapper">
+          <table class="price-table">
+            <thead>
+              <tr>
+                <th>Toode</th>
+                <th>Pood</th>
+                <th>Hind</th>
+                <th>Kogus</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% order.items.forEach(function(item) { %>
+                <tr>
+                  <td><%= item.product_name %></td>
+                  <td><%= item.store_name %></td>
+                  <td><%= Number(item.price).toFixed(2) %> €</td>
+                  <td><%= item.qty %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    <% }) %>
+  <% } %>
+</section>
+
+<%- include('partials/footer') %>

@@ -272,6 +272,37 @@ a:hover { text-decoration: underline; }
   color: #fee2e2; cursor: pointer; font-size: 13px;
 }
 .danger-btn:hover { background: #991b1b; }
+.order-action-form {
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 480px;
+}
+.order-action-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+.order-action-form textarea,
+.order-action-form input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #374151;
+  background: #020617;
+  color: #e5e7eb;
+}
+.order-action-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+.return-photo-preview {
+  width: 100%;
+  max-width: 260px;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+}
 .cart-total { margin-top: 12px; text-align: right; font-size: 18px; }
 .checkout-box {
   margin-top: 12px;
