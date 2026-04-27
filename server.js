@@ -1909,7 +1909,7 @@ app.get('/courier/orders', requireCourier, (req, res) => {
   );
 });
 
-app.get('/support/orders', requireSupport, (req, res) => {
+function loadSupportOrdersWithItems(callback) {
   db.all(
     `SELECT o.*, u.email AS user_email, u.username AS user_username
      FROM orders o
@@ -1918,12 +1918,11 @@ app.get('/support/orders', requireSupport, (req, res) => {
      ORDER BY o.created_at DESC`,
     (err, orders) => {
       if (err) {
-        console.error(err);
-        return res.status(500).send('Serveri viga');
+        return callback(err, null);
       }
 
       if (!orders || orders.length === 0) {
-        return res.render('support-orders', { orders: [] });
+        return callback(null, []);
       }
 
       const orderIds = orders.map((o) => o.id);
@@ -1933,8 +1932,7 @@ app.get('/support/orders', requireSupport, (req, res) => {
         orderIds,
         (itemsErr, items) => {
           if (itemsErr) {
-            console.error(itemsErr);
-            return res.status(500).send('Serveri viga');
+            return callback(itemsErr, null);
           }
 
           const itemsByOrder = {};
@@ -1949,11 +1947,136 @@ app.get('/support/orders', requireSupport, (req, res) => {
             ...order,
             items: itemsByOrder[order.id] || []
           }));
-          return res.render('support-orders', { orders: withItems });
+          return callback(null, withItems);
         }
       );
     }
   );
+}
+
+function filterSupportOrders(orders, filterType, q) {
+  const query = String(q || '').trim().toLowerCase();
+  const type = String(filterType || 'all').trim().toLowerCase();
+
+  let list = orders;
+  if (type === 'cancelled') {
+    list = list.filter((o) => o.status === 'cancelled_by_user');
+  } else if (type === 'return') {
+    list = list.filter((o) => o.status === 'return_requested');
+  }
+
+  if (!query) {
+    return list;
+  }
+
+  return list.filter((o) => {
+    const hay = [
+      String(o.id),
+      String(o.customer_first_name || ''),
+      String(o.customer_last_name || ''),
+      String(o.user_email || ''),
+      String(o.user_username || ''),
+      String(o.customer_phone || ''),
+      String(o.cancellation_reason || ''),
+      String(o.return_reason || '')
+    ]
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(query);
+  });
+}
+
+app.get('/support/orders', requireSupport, (req, res) => {
+  const filterType = String(req.query.type || 'all').trim().toLowerCase();
+  const q = String(req.query.q || '').trim();
+
+  loadSupportOrdersWithItems((err, withItems) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Serveri viga');
+    }
+
+    const allOrders = withItems || [];
+    const cancelledCount = allOrders.filter((o) => o.status === 'cancelled_by_user').length;
+    const returnCount = allOrders.filter((o) => o.status === 'return_requested').length;
+    const filtered = filterSupportOrders(allOrders, filterType, q);
+
+    return res.render('support-orders', {
+      orders: filtered,
+      allOrders,
+      filterType,
+      q,
+      stats: {
+        total: allOrders.length,
+        cancelled: cancelledCount,
+        returns: returnCount,
+        shown: filtered.length
+      }
+    });
+  });
+});
+
+app.get('/support/orders.csv', requireSupport, (req, res) => {
+  loadSupportOrdersWithItems((err, withItems) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Serveri viga');
+    }
+
+    const filtered = filterSupportOrders(
+      withItems,
+      String(req.query.type || 'all'),
+      String(req.query.q || '')
+    );
+
+    const esc = (val) => {
+      const s = val === null || val === undefined ? '' : String(val);
+      if (/[",\n]/.test(s)) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+
+    const header = [
+      'id',
+      'status',
+      'created_at',
+      'user_email',
+      'user_username',
+      'customer_name',
+      'phone',
+      'address',
+      'total',
+      'bank',
+      'cancellation_reason',
+      'return_reason',
+      'return_photo_url'
+    ];
+
+    const lines = [header.join(',')];
+    filtered.forEach((o) => {
+      const row = [
+        o.id,
+        o.status,
+        o.created_at,
+        o.user_email,
+        o.user_username,
+        `${o.customer_first_name || ''} ${o.customer_last_name || ''}`.trim(),
+        o.customer_phone,
+        o.customer_address,
+        o.total,
+        o.bank,
+        o.cancellation_reason,
+        o.return_reason,
+        o.return_photo_url
+      ].map(esc);
+      lines.push(row.join(','));
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="support-orders.csv"');
+    return res.send(lines.join('\n'));
+  });
 });
 
 app.post('/courier/orders/:id/status', requireCourier, (req, res) => {

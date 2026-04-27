@@ -1,14 +1,55 @@
 <%- include('partials/header') %>
 
-<section class="admin-page">
-  <h1>Tugi: tühistatud ja tagastatud tellimused</h1>
+<section class="admin-page support-page">
+  <div class="admin-header support-header">
+    <h1>Tugi: tühistatud ja tagastatud tellimused</h1>
+    <a
+      class="btn-primary"
+      href="/support/orders.csv?type=<%= encodeURIComponent(filterType || 'all') %><%= q ? '&q=' + encodeURIComponent(q) : '' %>"
+    >Laadi alla CSV</a>
+  </div>
+
+  <div class="support-toolbar">
+    <form method="get" action="/support/orders" class="support-filters">
+      <input type="hidden" name="type" value="<%= filterType || 'all' %>" />
+      <label>
+        Otsi
+        <input
+          type="search"
+          name="q"
+          value="<%= q || '' %>"
+          placeholder="ID, nimi, email, telefon, põhjus"
+        />
+      </label>
+      <button type="submit">Filtreeri</button>
+    </form>
+    <div class="support-type-tabs">
+      <a class="support-tab <%= (filterType || 'all') === 'all' ? 'support-tab--active' : '' %>" href="/support/orders">Kõik (<%= stats.total || 0 %>)</a>
+      <a class="support-tab <%= filterType === 'cancelled' ? 'support-tab--active' : '' %>" href="/support/orders?type=cancelled">Tühistatud (<%= stats.cancelled || 0 %>)</a>
+      <a class="support-tab <%= filterType === 'return' ? 'support-tab--active' : '' %>" href="/support/orders?type=return">Tagastused (<%= stats.returns || 0 %>)</a>
+    </div>
+  </div>
+
+  <p class="support-summary">
+    Näidatakse <strong><%= orders.length %></strong> rida
+    <% if ((filterType && filterType !== 'all') || (q && q.length)) { %>
+      (filtreeritud; kokku andmebaasis: <%= allOrders.length %>)
+    <% } else { %>
+      (kokku: <%= stats.total || 0 %>)
+    <% } %>
+  </p>
 
   <% if (orders.length === 0) { %>
-    <p>Hetkel pole tühistatud ega tagastuse tellimusi.</p>
+    <p>Ühtegi vastavat tellimust ei leitud. Muuda otsingut või vaheta vahekaarti.</p>
   <% } else { %>
     <% orders.forEach(function(order) { %>
       <article class="order-card">
-        <h2>Tellimus #<%= order.id %></h2>
+        <h2>
+          Tellimus #<%= order.id %>
+          <span class="order-kind-badge <%= order.status === 'return_requested' ? 'order-kind--return' : 'order-kind--cancel' %>">
+            <%= order.status === 'return_requested' ? 'Tagastus' : 'Tühistus' %>
+          </span>
+        </h2>
         <p>
           Staatus:
           <strong>
@@ -16,27 +57,38 @@
           </strong>
         </p>
         <p>
+          Kuupäev: <%= new Date(order.created_at).toLocaleString('et-EE') %><br />
           Klient: <strong><%= order.customer_first_name %> <%= order.customer_last_name %></strong><br />
           Kasutaja: <%= order.user_username || order.user_email || '-' %><br />
-          Telefon: <%= order.customer_phone %><br />
+          Telefon: <a href="tel:<%= order.customer_phone %>"><%= order.customer_phone %></a><br />
           Aadress: <%= order.customer_address %>
         </p>
         <p>
           Pank: <%= order.bank %><br />
           Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
         </p>
-        <% if (order.cancellation_reason) { %>
-          <p><strong>Tühistamise põhjus:</strong> <%= order.cancellation_reason %></p>
+        <% if (order.status === 'cancelled_by_user') { %>
+          <p>
+            <strong>Tühistamise põhjus:</strong>
+            <%= order.cancellation_reason && String(order.cancellation_reason).trim()
+              ? order.cancellation_reason
+              : 'Puudub (vanem tellimus või tühi kirje)' %>
+          </p>
         <% } %>
-        <% if (order.return_reason) { %>
-          <p><strong>Tagastuse põhjus:</strong> <%= order.return_reason %></p>
+        <% if (order.status === 'return_requested') { %>
+          <p>
+            <strong>Tagastuse põhjus:</strong>
+            <%= order.return_reason && String(order.return_reason).trim()
+              ? order.return_reason
+              : 'Puudub' %>
+          </p>
         <% } %>
         <% if (order.return_photo_url) { %>
           <p>
             <strong>Tagastuse foto:</strong>
-            <a href="<%= order.return_photo_url %>" target="_blank" rel="noopener noreferrer">Ava foto</a>
+            <a href="<%= order.return_photo_url %>" target="_blank" rel="noopener noreferrer">Ava uues aknas</a>
           </p>
-          <p><img src="<%= order.return_photo_url %>" alt="Tagastuse foto" class="return-photo-preview" /></p>
+          <p><img src="<%= order.return_photo_url %>" alt="Tagastuse foto" class="return-photo-preview" loading="lazy" /></p>
         <% } %>
         <div class="table-wrapper">
           <table class="price-table">

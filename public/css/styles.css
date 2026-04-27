@@ -135,6 +135,91 @@ a:hover { text-decoration: underline; }
 .auth-page, .profile-page, .admin-page, .cart-page, .checkout-page, .bank-page { max-width: 900px; margin: 0 auto; }
 .auth-page h1, .profile-page h1, .admin-page h1, .cart-page h1, .checkout-page h1, .bank-page h1 { margin-bottom: 16px; }
 .admin-header, .cart-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.support-header { flex-wrap: wrap; gap: 10px; }
+.support-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.support-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.support-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  min-width: 220px;
+  flex: 1 1 280px;
+}
+.support-filters input[type="search"] {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #374151;
+  background: #020617;
+  color: #e5e7eb;
+}
+.support-filters button {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #374151;
+  background: #111827;
+  color: #e5e7eb;
+  font-weight: 600;
+  cursor: pointer;
+}
+.support-filters button:hover { border-color: #facc15; color: #fde68a; }
+.support-type-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.support-tab {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #374151;
+  background: #020617;
+  color: #9ca3af;
+  text-decoration: none;
+  font-size: 13px;
+}
+.support-tab:hover { color: #e5e7eb; border-color: #6b7280; }
+.support-tab--active {
+  border-color: rgba(250, 204, 21, 0.5);
+  color: #fde68a;
+  background: rgba(250, 204, 21, 0.1);
+}
+.support-summary {
+  font-size: 14px;
+  color: #9ca3af;
+  margin: 0 0 12px;
+}
+.order-kind-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid #374151;
+  vertical-align: middle;
+}
+.order-kind--cancel {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+}
+.order-kind--return {
+  color: #c7d2fe;
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.12);
+}
 
 .btn-primary {
   display: inline-flex; align-items: center; justify-content: center; padding: 8px 14px;
