@@ -1,0 +1,117 @@
+# ToiduHind.ee
+
+Node.js + Express web application for grocery price comparison, checkout flow, courier workflow, and sandbox bank payment testing.
+
+## Features
+
+- Product catalog with search, categories, and sorting
+- User account: register, login, profile
+- Shopping cart (session + DB sync)
+- Checkout and bank-specific test payment forms
+- Swedbank Sandbox Payment Initiation (V3) integration
+- Order history:
+  - active orders
+  - previous orders (delivered/cancelled, max 5)
+  - repeat order (add previous items back to cart)
+  - user order cancellation
+- Courier panel:
+  - active order list
+  - delivery status updates
+- Admin panels for products, categories, and users
+- Swagger API docs
+
+## Tech Stack
+
+- Node.js (CommonJS)
+- Express
+- EJS
+- SQLite (`sqlite3`)
+- `express-session`
+- `swagger-jsdoc` + `swagger-ui-express`
+
+## Requirements
+
+- Node.js 18+ (20+ recommended)
+- npm
+
+## Installation
+
+```bash
+npm install
+```
+
+## Run
+
+Development:
+
+```bash
+npm run dev
+```
+
+Standard run:
+
+```bash
+npm start
+```
+
+After startup:
+
+- App: [http://localhost:3000](http://localhost:3000)
+- Swagger: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
+
+## Environment Variables (`.env`)
+
+Minimum:
+
+```env
+SESSION_SECRET=your_strong_secret
+```
+
+For Swedbank Sandbox:
+
+```env
+SWEDBANK_REDIRECT_URL=https://your-domain.ngrok-free.dev/checkout/swedbank/return
+SWEDBANK_NOTIFICATION_URL=https://your-domain.ngrok-free.dev/checkout/swedbank/notification
+```
+
+Optional Swedbank settings:
+
+```env
+SWEDBANK_SANDBOX_BASE_URL=https://pi-playground.swedbank.com/sandbox
+SWEDBANK_AGREEMENT_COUNTRY=EE
+SWEDBANK_MERCHANT_ID=SANDBOX_RSA
+SWEDBANK_PROVIDER_BIC=HABAEE2X
+SWEDBANK_SANDBOX_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+```
+
+> Sandbox requires HTTPS callback URLs. For local development, use ngrok/cloudflared.
+
+## Swedbank Sandbox Quick Test
+
+1. Start the app (`npm start`)
+2. Start tunnel:
+   ```bash
+   ngrok http 3000
+   ```
+3. Update `.env` (`SWEDBANK_REDIRECT_URL`, `SWEDBANK_NOTIFICATION_URL`)
+4. Restart server
+5. Place an order and choose Swedbank
+6. In Sandbox page choose status (`EXECUTED` or `SETTLED`)
+7. Verify redirect back to your app and order persistence
+
+## Roles
+
+- `user`: shopping, order management, cancel/repeat
+- `courier`: order handling and delivery status updates
+- `admin`: product, category, and user management
+
+## Database
+
+SQLite file is created automatically: `toiduhind.db`.
+
+## Short Structure
+
+- `server.js` – backend logic and routes
+- `views/` – EJS templates
+- `public/css/styles.css` – styles
+- `toiduhind.db` – SQLite database

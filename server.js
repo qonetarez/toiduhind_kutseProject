@@ -967,7 +967,7 @@ app.get('/profile', requireAuth, (req, res) => {
   );
 });
 
-app.post('/orders/:id/cancel', requireAuth, (req, res) => {
+function cancelOrderForCurrentUser(req, res) {
   const orderId = parseInt(req.params.id, 10);
   const userId = req.session.user && req.session.user.id;
   if (!Number.isInteger(orderId) || !userId) {
@@ -1001,6 +1001,14 @@ app.post('/orders/:id/cancel', requireAuth, (req, res) => {
       }
     );
   });
+}
+
+app.post('/orders/:id/cancel', requireAuth, (req, res) => {
+  return cancelOrderForCurrentUser(req, res);
+});
+
+app.get('/orders/:id/cancel', requireAuth, (req, res) => {
+  return cancelOrderForCurrentUser(req, res);
 });
 
 app.post('/orders/:id/repeat', requireAuth, (req, res) => {

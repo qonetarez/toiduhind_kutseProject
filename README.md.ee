@@ -1,0 +1,117 @@
+# ToiduHind.ee
+
+Node.js + Express veebirakendus toidukaupade hindade võrdlemiseks, tellimuste vormistamiseks, kulleri töövoo haldamiseks ja pangamaksete testimiseks.
+
+## Funktsionaalsus
+
+- Toodete kataloog otsingu, kategooriate ja sortimisega
+- Kasutaja konto: registreerimine, sisselogimine, profiil
+- Ostukorv (session + DB sünkroon)
+- Checkout ja testpanga maksevormid
+- Swedbank Sandbox Payment Initiation (V3) integratsioon
+- Tellimuste ajalugu:
+  - aktiivsed tellimused
+  - eelmised tellimused (kohaletoimetatud/tühistatud, max 5)
+  - tellimuse kordamine
+  - tellimuse tühistamine kasutaja poolt
+- Kulleri vaade:
+  - aktiivsete tellimuste nimekiri
+  - tarne staatuste uuendamine
+- Admin vaated toodete, kategooriate ja kasutajate halduseks
+- Swagger API dokumentatsioon
+
+## Tehnoloogiad
+
+- Node.js (CommonJS)
+- Express
+- EJS
+- SQLite (`sqlite3`)
+- `express-session`
+- `swagger-jsdoc` + `swagger-ui-express`
+
+## Nõuded
+
+- Node.js 18+ (soovitavalt 20+)
+- npm
+
+## Paigaldus
+
+```bash
+npm install
+```
+
+## Käivitamine
+
+Arendus:
+
+```bash
+npm run dev
+```
+
+Tavakäivitus:
+
+```bash
+npm start
+```
+
+Pärast käivitust:
+
+- Rakendus: [http://localhost:3000](http://localhost:3000)
+- Swagger: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
+
+## Keskkonnamuutujad (`.env`)
+
+Miinimum:
+
+```env
+SESSION_SECRET=your_strong_secret
+```
+
+Swedbank Sandbox jaoks:
+
+```env
+SWEDBANK_REDIRECT_URL=https://your-domain.ngrok-free.dev/checkout/swedbank/return
+SWEDBANK_NOTIFICATION_URL=https://your-domain.ngrok-free.dev/checkout/swedbank/notification
+```
+
+Valikulised lisad:
+
+```env
+SWEDBANK_SANDBOX_BASE_URL=https://pi-playground.swedbank.com/sandbox
+SWEDBANK_AGREEMENT_COUNTRY=EE
+SWEDBANK_MERCHANT_ID=SANDBOX_RSA
+SWEDBANK_PROVIDER_BIC=HABAEE2X
+SWEDBANK_SANDBOX_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+```
+
+> Sandbox nõuab callback URL-idele HTTPS protokolli. Lokaalseks testimiseks kasuta ngrok/cloudflared tunnelit.
+
+## Swedbank Sandbox kiire test
+
+1. Käivita rakendus (`npm start`)
+2. Käivita tunnel:
+   ```bash
+   ngrok http 3000
+   ```
+3. Uuenda `.env` (`SWEDBANK_REDIRECT_URL`, `SWEDBANK_NOTIFICATION_URL`)
+4. Taaskäivita server
+5. Tee tellimus ja vali Swedbank
+6. Sandbox lehel vali staatus (`EXECUTED` või `SETTLED`)
+7. Kontrolli, et suunamine tagasi toimib ja tellimus salvestatakse
+
+## Rollid
+
+- `user`: ostmine, tellimuste haldus, tühistamine ja kordamine
+- `courier`: tellimuste vaatamine ja tarne staatuste muutmine
+- `admin`: toodete, kategooriate ja kasutajate haldus
+
+## Andmebaas
+
+SQLite fail luuakse automaatselt: `toiduhind.db`.
+
+## Lühike struktuur
+
+- `server.js` – backend loogika ja route'id
+- `views/` – EJS vaated
+- `public/css/styles.css` – stiilid
+- `toiduhind.db` – SQLite andmebaas
