@@ -8,18 +8,68 @@
   <p>Oled sisse loginud kui: <strong><%= currentUser.email %></strong></p>
   <p>Roll: <strong><%= currentUser.role %></strong></p>
 
-  <h2>Minu tasutud tellimused</h2>
-  <% if (!orders || orders.length === 0) { %>
-    <p>Sul ei ole veel tasutud tellimusi.</p>
+  <h2>Aktiivsed tellimused</h2>
+  <% if (!activeOrders || activeOrders.length === 0) { %>
+    <p>Sul ei ole hetkel aktiivseid tellimusi.</p>
   <% } else { %>
-    <% orders.forEach(function(order) { %>
+    <% activeOrders.forEach(function(order) { %>
       <article class="order-card">
-        <h3>Tellimus #<%= order.id %></h3>
+        <h3>Tellimus #<%= order.user_order_number || order.id %></h3>
         <p>
           Kuupäev: <%= new Date(order.created_at).toLocaleString('et-EE') %><br />
+          Staatus:
+          <%= order.status === 'in_progress'
+            ? 'Töös'
+            : order.status === 'delivering'
+              ? 'Teel kliendile'
+              : order.status === 'delivered'
+                ? 'Kohale toimetatud'
+                : 'Makstud' %><br />
           Pank: <%= order.bank %><br />
           Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
         </p>
+        <div class="table-wrapper">
+          <table class="price-table">
+            <thead>
+              <tr>
+                <th>Toode</th>
+                <th>Pood</th>
+                <th>Hind</th>
+                <th>Kogus</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% order.items.forEach(function(item) { %>
+                <tr>
+                  <td><%= item.product_name %></td>
+                  <td><%= item.store_name %></td>
+                  <td><%= Number(item.price).toFixed(2) %> €</td>
+                  <td><%= item.qty %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    <% }) %>
+  <% } %>
+
+  <h2>Eelmised tellimused</h2>
+  <% if (!previousOrders || previousOrders.length === 0) { %>
+    <p>Sul ei ole veel eelnevaid tellimusi.</p>
+  <% } else { %>
+    <% previousOrders.forEach(function(order) { %>
+      <article class="order-card">
+        <h3>Tellimus #<%= order.user_order_number || order.id %></h3>
+        <p>
+          Kuupäev: <%= new Date(order.created_at).toLocaleString('et-EE') %><br />
+          Staatus: Kohale toimetatud<br />
+          Pank: <%= order.bank %><br />
+          Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
+        </p>
+        <form method="post" action="/orders/<%= order.id %>/repeat" style="margin-bottom: 10px;">
+          <button type="submit" class="btn-primary">Korda tellimust</button>
+        </form>
         <div class="table-wrapper">
           <table class="price-table">
             <thead>

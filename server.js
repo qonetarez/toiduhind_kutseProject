@@ -898,7 +898,7 @@ app.get('/profile', requireAuth, (req, res) => {
   db.all(
     `SELECT *
      FROM orders
-     WHERE user_id = ? AND status = 'paid'
+     WHERE user_id = ?
      ORDER BY created_at DESC`,
     [userId],
     (err, orders) => {
@@ -908,7 +908,7 @@ app.get('/profile', requireAuth, (req, res) => {
       }
 
       if (!orders || orders.length === 0) {
-        return res.render('profile', { orders: [] });
+        return res.render('profile', { activeOrders: [], previousOrders: [] });
       }
 
       const orderIds = orders.map((o) => o.id);
@@ -934,11 +934,103 @@ app.get('/profile', requireAuth, (req, res) => {
             ...order,
             items: itemsByOrder[order.id] || []
           }));
-          return res.render('profile', { orders: withItems });
+
+          const orderedByTime = [...withItems].sort((a, b) => {
+            const timeA = new Date(a.created_at).getTime();
+            const timeB = new Date(b.created_at).getTime();
+            if (timeA !== timeB) {
+              return timeA - timeB;
+            }
+            return a.id - b.id;
+          });
+          const userOrderNumberById = new Map();
+          orderedByTime.forEach((order, index) => {
+            userOrderNumberById.set(order.id, index + 1);
+          });
+
+          const withUserOrderNumber = withItems.map((order) => ({
+            ...order,
+            user_order_number: userOrderNumberById.get(order.id) || null
+          }));
+
+          const activeOrders = withUserOrderNumber.filter((order) => order.status !== 'delivered');
+          const previousOrders = withUserOrderNumber
+            .filter((order) => order.status === 'delivered')
+            .slice(0, 5);
+          return res.render('profile', { activeOrders, previousOrders });
         }
       );
     }
   );
+});
+
+app.post('/orders/:id/repeat', requireAuth, (req, res) => {
+  const orderId = parseInt(req.params.id, 10);
+  const userId = req.session.user && req.session.user.id;
+  if (!Number.isInteger(orderId) || !userId) {
+    return res.redirect('/profile');
+  }
+
+  db.get('SELECT id FROM orders WHERE id = ? AND user_id = ?', [orderId, userId], (orderErr, order) => {
+    if (orderErr) {
+      console.error(orderErr);
+      return res.status(500).send('Serveri viga');
+    }
+
+    if (!order) {
+      return res.redirect('/profile');
+    }
+
+    db.all(
+      `SELECT oi.product_slug, oi.product_name, oi.store_id, oi.store_name, oi.price, oi.qty, p.image_url
+       FROM order_items oi
+       LEFT JOIN products p ON p.slug = oi.product_slug
+       WHERE oi.order_id = ?
+       ORDER BY oi.id ASC`,
+      [orderId],
+      (itemsErr, items) => {
+        if (itemsErr) {
+          console.error(itemsErr);
+          return res.status(500).send('Serveri viga');
+        }
+
+        if (!items || items.length === 0) {
+          return res.redirect('/cart');
+        }
+
+        if (!Array.isArray(req.session.cart)) {
+          req.session.cart = [];
+        }
+
+        items.forEach((item) => {
+          const existing = req.session.cart.find(
+            (cartItem) => cartItem.slug === item.product_slug && cartItem.storeId === item.store_id
+          );
+
+          if (existing) {
+            existing.qty += Number(item.qty || 0);
+          } else {
+            req.session.cart.push({
+              slug: item.product_slug,
+              name: item.product_name,
+              imageUrl: item.image_url || '',
+              storeId: item.store_id,
+              storeName: item.store_name,
+              price: Number(item.price),
+              qty: Number(item.qty || 0)
+            });
+          }
+        });
+
+        syncCartForCurrentUser(req, (syncErr) => {
+          if (syncErr) {
+            console.error(syncErr);
+          }
+          return res.redirect('/cart');
+        });
+      }
+    );
+  });
 });
 
 function requireAdmin(req, res, next) {
@@ -1587,7 +1679,7 @@ app.get('/courier/orders', requireCourier, (req, res) => {
     `SELECT o.*, u.email AS user_email, u.username AS user_username
      FROM orders o
      LEFT JOIN users u ON u.id = o.user_id
-     WHERE o.status = 'paid'
+     WHERE o.status != 'delivered'
      ORDER BY o.created_at DESC`,
     (err, orders) => {
       if (err) {
@@ -1628,6 +1720,44 @@ app.get('/courier/orders', requireCourier, (req, res) => {
       );
     }
   );
+});
+
+app.post('/courier/orders/:id/status', requireCourier, (req, res) => {
+  const orderId = parseInt(req.params.id, 10);
+  const nextStatus = String(req.body.status || '').trim().toLowerCase();
+  const allowedStatuses = ['paid', 'in_progress', 'delivering', 'delivered'];
+
+  if (!Number.isInteger(orderId) || !allowedStatuses.includes(nextStatus)) {
+    return res.redirect('/courier/orders');
+  }
+
+  db.get('SELECT status FROM orders WHERE id = ?', [orderId], (selectErr, orderRow) => {
+    if (selectErr) {
+      console.error(selectErr);
+      return res.status(500).send('Serveri viga');
+    }
+
+    if (!orderRow) {
+      return res.redirect('/courier/orders');
+    }
+
+    const currentStatus = String(orderRow.status || '').trim().toLowerCase();
+    if (currentStatus === 'delivering' && nextStatus === 'in_progress') {
+      return res.redirect('/courier/orders');
+    }
+
+    db.run(
+      'UPDATE orders SET status = ? WHERE id = ?',
+      [nextStatus, orderId],
+      function (err) {
+        if (err) {
+          console.error(err);
+          return res.status(500).send('Serveri viga');
+        }
+        return res.redirect('/courier/orders');
+      }
+    );
+  });
 });
 
 // Cart

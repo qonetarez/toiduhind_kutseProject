@@ -138,7 +138,8 @@ a:hover { text-decoration: underline; }
 
 .btn-primary {
   display: inline-flex; align-items: center; justify-content: center; padding: 8px 14px;
-  border-radius: 6px; background: #3b82f6; color: #e5e7eb; font-size: 14px; font-weight: 600; text-decoration: none;
+  border-radius: 6px; border: 1px solid #3b82f6; background: #3b82f6; color: #e5e7eb; font-size: 14px; font-weight: 600; text-decoration: none;
+  cursor: pointer;
 }
 .btn-primary:hover { background: #2563eb; }
 
@@ -186,6 +187,76 @@ a:hover { text-decoration: underline; }
 }
 .order-card h2 { margin-top: 0; }
 .order-map { margin: 8px 0 10px; }
+.order-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid #374151;
+  background: #111827;
+}
+.order-status-paid {
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #bfdbfe;
+}
+.order-status-in_progress {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.55);
+  color: #fde68a;
+}
+.order-status-delivering {
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(14, 165, 233, 0.5);
+  color: #bae6fd;
+}
+.order-status-delivered {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #bbf7d0;
+}
+.status-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.status-btn {
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid #374151;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.status-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.status-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+.status-btn-progress {
+  border-color: rgba(245, 158, 11, 0.6);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fde68a;
+}
+.status-btn-delivering {
+  border-color: rgba(14, 165, 233, 0.6);
+  background: rgba(14, 165, 233, 0.14);
+  color: #bae6fd;
+}
+.status-btn-delivered {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+}
 
 .alert {
   background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.6);

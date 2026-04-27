@@ -1,18 +1,57 @@
 <%- include('partials/header') %>
 
 <section class="admin-page">
-  <h1>Kuller: Tasutud tellimused</h1>
+  <h1>Kuller: Koik tellimused</h1>
 
   <% if (orders.length === 0) { %>
-    <p>Tasutud tellimusi hetkel pole.</p>
+    <p>Tellimusi hetkel pole.</p>
   <% } else { %>
     <% orders.forEach(function(order) { %>
       <article class="order-card">
         <h2>Tellimus #<%= order.id %></h2>
         <p>
+          Staatus:
+          <strong class="order-status-badge order-status-<%= order.status %>">
+            <%= order.status === 'in_progress'
+              ? 'Töös'
+              : order.status === 'delivering'
+                ? 'Teel kliendile'
+                : order.status === 'delivered'
+                  ? 'Katte toimetatud'
+                  : 'Makstud' %>
+          </strong>
+        </p>
+        <form method="post" action="/courier/orders/<%= order.id %>/status" class="status-actions">
+          <button
+            type="submit"
+            name="status"
+            value="in_progress"
+            class="status-btn status-btn-progress"
+            <%= (order.status === 'in_progress' || order.status === 'delivering' || order.status === 'delivered') ? 'disabled' : '' %>
+          >
+            Töös
+          </button>
+          <button
+            type="submit"
+            name="status"
+            value="delivering"
+            class="status-btn status-btn-delivering"
+            <%= (order.status === 'delivering' || order.status === 'delivered') ? 'disabled' : '' %>
+          >
+            Teel kliendile
+          </button>
+          <button
+            type="submit"
+            name="status"
+            value="delivered"
+            class="status-btn status-btn-delivered"
+            <%= order.status === 'delivered' ? 'disabled' : '' %>
+          >
+            Katte toimetatud
+          </button>
+        </form>
+        <p>
           Klient: <strong><%= order.customer_first_name %> <%= order.customer_last_name %></strong><br />
-          Kasutaja number: <%= order.customer_user_number || '-' %><br />
-          Isikukood: <%= order.customer_isikukood || '-' %><br />
           Telefon: <%= order.customer_phone %><br />
           Aadress: <%= order.customer_address %>
         </p>
