@@ -2,13 +2,10 @@
 
 <section class="bank-page">
   <h1>
-    <%= bank === 'applepay' ? bankLabel : bankLabel + ' internetipank' %>
+    <%= bankLabel %> makse
   </h1>
   <p class="bank-subtitle">
-    Tegemist on testvormiga.
-    <%= bank === 'applepay'
-      ? 'Sisesta suvalised andmed nagu Apple Pay makse kinnitamisel.'
-      : 'Sisesta suvalised andmed ja kinnita makse.' %>
+    Tegemist on testvormiga. Sisesta andmed ja kinnita makse.
   </p>
   <% if (error) { %>
     <div class="alert"><%= error %></div>
@@ -23,12 +20,22 @@
     <form method="post" action="/checkout/confirm" class="auth-form">
       <input type="hidden" name="bank" value="<%= bank %>" />
       <label>
-        <%= bank === 'applepay' ? 'Apple ID / Seadme nimi' : 'Kasutajanimi' %>
-        <input type="text" name="bankUser" required />
+        Kasutaja number
+        <input
+          type="text"
+          name="userNumber"
+          required
+          value="<%= paymentForm && paymentForm.userNumber ? paymentForm.userNumber : '' %>"
+        />
       </label>
       <label>
-        <%= bank === 'applepay' ? 'Face ID / Touch ID kood (test)' : 'Isikukood' %>
-        <input type="text" name="bankCode" required />
+        Isikukood
+        <input
+          type="text"
+          name="isikukood"
+          required
+          value="<%= paymentForm && paymentForm.isikukood ? paymentForm.isikukood : '' %>"
+        />
       </label>
       <button type="submit">Kinnita makse</button>
     </form>

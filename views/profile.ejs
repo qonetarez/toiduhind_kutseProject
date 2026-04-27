@@ -7,7 +7,44 @@
   <% } %>
   <p>Oled sisse loginud kui: <strong><%= currentUser.email %></strong></p>
   <p>Roll: <strong><%= currentUser.role %></strong></p>
-  <p>Tulevikus saab siia lisada ostunimekirju, hinnateavitusi jms.</p>
+
+  <h2>Minu tasutud tellimused</h2>
+  <% if (!orders || orders.length === 0) { %>
+    <p>Sul ei ole veel tasutud tellimusi.</p>
+  <% } else { %>
+    <% orders.forEach(function(order) { %>
+      <article class="order-card">
+        <h3>Tellimus #<%= order.id %></h3>
+        <p>
+          Kuupäev: <%= new Date(order.created_at).toLocaleString('et-EE') %><br />
+          Pank: <%= order.bank %><br />
+          Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
+        </p>
+        <div class="table-wrapper">
+          <table class="price-table">
+            <thead>
+              <tr>
+                <th>Toode</th>
+                <th>Pood</th>
+                <th>Hind</th>
+                <th>Kogus</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% order.items.forEach(function(item) { %>
+                <tr>
+                  <td><%= item.product_name %></td>
+                  <td><%= item.store_name %></td>
+                  <td><%= Number(item.price).toFixed(2) %> €</td>
+                  <td><%= item.qty %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    <% }) %>
+  <% } %>
 </section>
 
 <%- include('partials/footer') %>

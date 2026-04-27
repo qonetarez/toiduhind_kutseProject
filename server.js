@@ -146,12 +146,32 @@ db.serialize(() => {
       bank TEXT NOT NULL,
       customer_first_name TEXT NOT NULL,
       customer_last_name TEXT NOT NULL,
+      customer_user_number TEXT,
+      customer_isikukood TEXT,
       customer_phone TEXT NOT NULL,
       customer_address TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'paid',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
     )`
+  );
+
+  db.run(
+    'ALTER TABLE orders ADD COLUMN customer_user_number TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding customer_user_number column:', err.message);
+      }
+    }
+  );
+
+  db.run(
+    'ALTER TABLE orders ADD COLUMN customer_isikukood TEXT',
+    (err) => {
+      if (err && !String(err.message).includes('duplicate column name')) {
+        console.error('Error adding customer_isikukood column:', err.message);
+      }
+    }
   );
 
   db.run(
@@ -870,7 +890,55 @@ function requireAuth(req, res, next) {
 }
 
 app.get('/profile', requireAuth, (req, res) => {
-  res.render('profile');
+  const userId = req.session.user && req.session.user.id;
+  if (!userId) {
+    return res.redirect('/login');
+  }
+
+  db.all(
+    `SELECT *
+     FROM orders
+     WHERE user_id = ? AND status = 'paid'
+     ORDER BY created_at DESC`,
+    [userId],
+    (err, orders) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Serveri viga');
+      }
+
+      if (!orders || orders.length === 0) {
+        return res.render('profile', { orders: [] });
+      }
+
+      const orderIds = orders.map((o) => o.id);
+      const placeholders = orderIds.map(() => '?').join(',');
+      db.all(
+        `SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY id ASC`,
+        orderIds,
+        (itemsErr, items) => {
+          if (itemsErr) {
+            console.error(itemsErr);
+            return res.status(500).send('Serveri viga');
+          }
+
+          const itemsByOrder = {};
+          (items || []).forEach((item) => {
+            if (!itemsByOrder[item.order_id]) {
+              itemsByOrder[item.order_id] = [];
+            }
+            itemsByOrder[item.order_id].push(item);
+          });
+
+          const withItems = orders.map((order) => ({
+            ...order,
+            items: itemsByOrder[order.id] || []
+          }));
+          return res.render('profile', { orders: withItems });
+        }
+      );
+    }
+  );
 });
 
 function requireAdmin(req, res, next) {
@@ -1819,23 +1887,24 @@ app.get('/checkout/bank/:bank', requireAuth, (req, res) => {
     return res.redirect('/checkout');
   }
 
-  const externalBankUrl = getExternalBankUrl(bank);
-  if (externalBankUrl) {
-    return res.redirect(externalBankUrl);
-  }
-
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
   return res.render('checkout-bank', {
     bank,
     bankLabel: getBankLabel(bank),
     draft,
     total,
-    error: null
+    error: null,
+    paymentForm: {
+      userNumber: String(req.session.user.id || ''),
+      isikukood: ''
+    }
   });
 });
 
 app.post('/checkout/confirm', requireAuth, (req, res) => {
   const bank = String(req.body.bank || '').trim().toLowerCase();
+  const userNumber = String(req.body.userNumber || '').trim();
+  const isikukood = String(req.body.isikukood || '').trim();
   const draft = req.session.checkoutDraft || null;
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
 
@@ -1844,16 +1913,40 @@ app.post('/checkout/confirm', requireAuth, (req, res) => {
   }
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  if (!userNumber || !isikukood) {
+    return res.status(400).render('checkout-bank', {
+      bank,
+      bankLabel: getBankLabel(bank),
+      draft,
+      total,
+      error: 'Palun sisesta kasutaja number ja isikukood.',
+      paymentForm: { userNumber, isikukood }
+    });
+  }
+
   db.run(
     `INSERT INTO orders
-      (user_id, total, bank, customer_first_name, customer_last_name, customer_phone, customer_address, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'paid')`,
+      (
+        user_id,
+        total,
+        bank,
+        customer_first_name,
+        customer_last_name,
+        customer_user_number,
+        customer_isikukood,
+        customer_phone,
+        customer_address,
+        status
+      )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid')`,
     [
       req.session.user.id,
       total,
       bank,
       draft.firstName,
       draft.lastName,
+      userNumber,
+      isikukood,
       draft.phone,
       draft.address
     ],
