@@ -24,10 +24,17 @@
               ? 'Teel kliendile'
               : order.status === 'delivered'
                 ? 'Kohale toimetatud'
+                : order.status === 'cancelled_by_user'
+                  ? 'Kasutaja tühistas'
                 : 'Makstud' %><br />
           Pank: <%= order.bank %><br />
           Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
         </p>
+        <% if (order.status === 'paid' || order.status === 'in_progress') { %>
+          <form method="post" action="/orders/<%= order.id %>/cancel" style="margin-bottom:10px;">
+            <button type="submit" class="danger-btn">Tühista tellimus</button>
+          </form>
+        <% } %>
         <div class="table-wrapper">
           <table class="price-table">
             <thead>
@@ -63,7 +70,8 @@
         <h3>Tellimus #<%= order.user_order_number || order.id %></h3>
         <p>
           Kuupäev: <%= new Date(order.created_at).toLocaleString('et-EE') %><br />
-          Staatus: Kohale toimetatud<br />
+          Staatus:
+          <%= order.status === 'cancelled_by_user' ? 'Kasutaja tühistas' : 'Kohale toimetatud' %><br />
           Pank: <%= order.bank %><br />
           Kokku: <strong><%= Number(order.total).toFixed(2) %> €</strong>
         </p>

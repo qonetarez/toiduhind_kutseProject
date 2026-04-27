@@ -5,7 +5,7 @@
     <%= bankLabel %> makse
   </h1>
   <p class="bank-subtitle">
-    Tegemist on testvormiga. Sisesta andmed ja kinnita makse.
+    Tegemist on panga eraldi maksevormiga. Sisesta andmed ja kinnita makse.
   </p>
   <% if (error) { %>
     <div class="alert"><%= error %></div>
@@ -16,27 +16,31 @@
     <p><strong>Telefon:</strong> <%= draft.phone %></p>
     <p><strong>Aadress:</strong> <%= draft.address %></p>
     <p><strong>Summa:</strong> <%= total.toFixed(2) %> €</p>
+    <% if (paymentConfig && paymentConfig.title) { %>
+      <p><strong>Integratsioon:</strong> <%= paymentConfig.title %></p>
+    <% } %>
+    <% if (paymentConfig && paymentConfig.externalUrl) { %>
+      <p>
+        <a href="<%= paymentConfig.externalUrl %>" target="_blank" rel="noopener noreferrer">
+          Ava panga ametlik test/leht
+        </a>
+      </p>
+    <% } %>
 
     <form method="post" action="/checkout/confirm" class="auth-form">
       <input type="hidden" name="bank" value="<%= bank %>" />
-      <label>
-        Kasutaja number
-        <input
-          type="text"
-          name="userNumber"
-          required
-          value="<%= paymentForm && paymentForm.userNumber ? paymentForm.userNumber : '' %>"
-        />
-      </label>
-      <label>
-        Isikukood
-        <input
-          type="text"
-          name="isikukood"
-          required
-          value="<%= paymentForm && paymentForm.isikukood ? paymentForm.isikukood : '' %>"
-        />
-      </label>
+      <% (paymentConfig && paymentConfig.fields ? paymentConfig.fields : []).forEach(function(field) { %>
+        <label>
+          <%= field.label %>
+          <input
+            type="text"
+            name="<%= field.name %>"
+            <%= field.required ? 'required' : '' %>
+            placeholder="<%= field.placeholder || '' %>"
+            value="<%= paymentForm && paymentForm[field.name] ? paymentForm[field.name] : '' %>"
+          />
+        </label>
+      <% }) %>
       <button type="submit">Kinnita makse</button>
     </form>
   </div>

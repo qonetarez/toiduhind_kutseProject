@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const session = require('express-session');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
@@ -953,15 +954,53 @@ app.get('/profile', requireAuth, (req, res) => {
             user_order_number: userOrderNumberById.get(order.id) || null
           }));
 
-          const activeOrders = withUserOrderNumber.filter((order) => order.status !== 'delivered');
+          const activeOrders = withUserOrderNumber.filter(
+            (order) => order.status !== 'delivered' && order.status !== 'cancelled_by_user'
+          );
           const previousOrders = withUserOrderNumber
-            .filter((order) => order.status === 'delivered')
+            .filter((order) => order.status === 'delivered' || order.status === 'cancelled_by_user')
             .slice(0, 5);
           return res.render('profile', { activeOrders, previousOrders });
         }
       );
     }
   );
+});
+
+app.post('/orders/:id/cancel', requireAuth, (req, res) => {
+  const orderId = parseInt(req.params.id, 10);
+  const userId = req.session.user && req.session.user.id;
+  if (!Number.isInteger(orderId) || !userId) {
+    return res.redirect('/profile');
+  }
+
+  db.get('SELECT id, status FROM orders WHERE id = ? AND user_id = ?', [orderId, userId], (err, order) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send('Serveri viga');
+    }
+    if (!order) {
+      return res.redirect('/profile');
+    }
+
+    const status = String(order.status || '').trim().toLowerCase();
+    const cancellableStatuses = ['paid', 'in_progress'];
+    if (!cancellableStatuses.includes(status)) {
+      return res.redirect('/profile');
+    }
+
+    db.run(
+      "UPDATE orders SET status = 'cancelled_by_user' WHERE id = ? AND user_id = ?",
+      [orderId, userId],
+      (updateErr) => {
+        if (updateErr) {
+          console.error(updateErr);
+          return res.status(500).send('Serveri viga');
+        }
+        return res.redirect('/profile');
+      }
+    );
+  });
 });
 
 app.post('/orders/:id/repeat', requireAuth, (req, res) => {
@@ -1679,7 +1718,7 @@ app.get('/courier/orders', requireCourier, (req, res) => {
     `SELECT o.*, u.email AS user_email, u.username AS user_username
      FROM orders o
      LEFT JOIN users u ON u.id = o.user_id
-     WHERE o.status != 'delivered'
+     WHERE o.status NOT IN ('delivered', 'cancelled_by_user')
      ORDER BY o.created_at DESC`,
     (err, orders) => {
       if (err) {
@@ -1818,6 +1857,252 @@ function getExternalBankUrl(bankId) {
     applepay: 'https://www.apple.com/apple-pay/'
   };
   return links[bankId] || null;
+}
+
+function getPaymentFormConfig(bankId) {
+  const configs = {
+    swedbank: {
+      title: 'Swedbank Payment Initiation',
+      externalUrl: 'https://pi.swedbank.com/',
+      fields: [
+        {
+          name: 'userNumber',
+          label: 'Kasutaja number',
+          placeholder: 'Sisesta kasutaja number',
+          required: true
+        },
+        {
+          name: 'isikukood',
+          label: 'Isikukood',
+          placeholder: 'Sisesta isikukood',
+          required: true
+        }
+      ]
+    },
+    seb: {
+      title: 'SEB internetipank',
+      externalUrl: getExternalBankUrl('seb'),
+      fields: [
+        {
+          name: 'clientId',
+          label: 'Kliendi ID',
+          placeholder: 'Sisesta kliendi ID',
+          required: true
+        },
+        {
+          name: 'isikukood',
+          label: 'Isikukood',
+          placeholder: 'Sisesta isikukood',
+          required: true
+        }
+      ]
+    },
+    lhv: {
+      title: 'LHV autentimine',
+      externalUrl: getExternalBankUrl('lhv'),
+      fields: [
+        {
+          name: 'customerNumber',
+          label: 'Kliendi number',
+          placeholder: 'Sisesta kliendi number',
+          required: true
+        },
+        {
+          name: 'isikukood',
+          label: 'Isikukood',
+          placeholder: 'Sisesta isikukood',
+          required: true
+        }
+      ]
+    },
+    luminor: {
+      title: 'Luminor makselahendus',
+      externalUrl: getExternalBankUrl('luminor'),
+      fields: [
+        {
+          name: 'customerRef',
+          label: 'Kliendiviide',
+          placeholder: 'Sisesta kliendiviide',
+          required: true
+        },
+        {
+          name: 'isikukood',
+          label: 'Isikukood',
+          placeholder: 'Sisesta isikukood',
+          required: true
+        }
+      ]
+    },
+    applepay: {
+      title: 'Apple Pay',
+      externalUrl: getExternalBankUrl('applepay'),
+      fields: [
+        {
+          name: 'deviceAccount',
+          label: 'Device Account Number',
+          placeholder: 'Sisesta Device Account Number',
+          required: true
+        },
+        {
+          name: 'phoneConfirm',
+          label: 'Telefoni kinnitus',
+          placeholder: 'Sisesta telefoninumber',
+          required: true
+        }
+      ]
+    }
+  };
+  return configs[bankId] || null;
+}
+
+function toBase64Url(input) {
+  return Buffer.from(input)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+let swedbankSandboxPrivateKeyCache = null;
+async function getSwedbankSandboxPrivateKey() {
+  if (swedbankSandboxPrivateKeyCache) {
+    return swedbankSandboxPrivateKeyCache;
+  }
+  const envKey = String(process.env.SWEDBANK_SANDBOX_PRIVATE_KEY || '').trim();
+  if (envKey) {
+    swedbankSandboxPrivateKeyCache = envKey.replace(/\\n/g, '\n');
+    return swedbankSandboxPrivateKeyCache;
+  }
+
+  const response = await fetch('https://pi-playground.swedbank.com/sandbox/keys/SANDBOX_RSA');
+  if (!response.ok) {
+    throw new Error(`Sandbox key fetch failed (${response.status})`);
+  }
+  swedbankSandboxPrivateKeyCache = await response.text();
+  return swedbankSandboxPrivateKeyCache;
+}
+
+function createDetachedJwsSignature({ url, body, privateKey, kid }) {
+  const iat = Math.floor(Date.now() / 1000);
+  const header = {
+    b64: false,
+    crit: ['b64'],
+    iat,
+    alg: 'RS512',
+    url,
+    kid
+  };
+
+  const encodedHeader = toBase64Url(JSON.stringify(header));
+  const payload = typeof body === 'string' ? body : JSON.stringify(body || {});
+  const signingInput = `${encodedHeader}.${payload}`;
+
+  const signer = crypto.createSign('RSA-SHA512');
+  signer.update(signingInput);
+  signer.end();
+  const signature = signer.sign(privateKey);
+  const encodedSignature = signature
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+  return `${encodedHeader}..${encodedSignature}`;
+}
+
+function extractSwedbankRedirectUrl(payload) {
+  return (
+    payload?.urls?.redirect ||
+    payload?.urls?.payment ||
+    payload?.redirectUrl ||
+    payload?.redirect ||
+    payload?._links?.redirect?.href ||
+    null
+  );
+}
+
+function extractSwedbankPaymentId(payload) {
+  return payload?.id || payload?.transactionId || null;
+}
+
+function generateEstonianReference(baseDigits) {
+  const digits = String(baseDigits || '').replace(/\D/g, '');
+  if (!digits) {
+    return '7311';
+  }
+  const weights = [7, 3, 1];
+  let sum = 0;
+  for (let i = 0; i < digits.length; i += 1) {
+    const digit = Number(digits[digits.length - 1 - i]);
+    sum += digit * weights[i % weights.length];
+  }
+  const checkDigit = (10 - (sum % 10)) % 10;
+  return `${digits}${checkDigit}`;
+}
+
+function createOrderFromCheckoutData(
+  req,
+  { bank, total, draft, cart, customerUserNumber, customerIsikukood },
+  callback
+) {
+  db.run(
+    `INSERT INTO orders
+      (
+        user_id,
+        total,
+        bank,
+        customer_first_name,
+        customer_last_name,
+        customer_user_number,
+        customer_isikukood,
+        customer_phone,
+        customer_address,
+        status
+      )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid')`,
+    [
+      req.session.user.id,
+      total,
+      bank,
+      draft.firstName,
+      draft.lastName,
+      customerUserNumber,
+      customerIsikukood,
+      draft.phone,
+      draft.address
+    ],
+    function (err) {
+      if (err) {
+        return callback(err);
+      }
+
+      const orderId = this.lastID;
+      const itemStmt = db.prepare(
+        `INSERT INTO order_items
+          (order_id, product_slug, product_name, store_id, store_name, price, qty)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      cart.forEach((item) => {
+        itemStmt.run(
+          orderId,
+          item.slug,
+          item.name,
+          item.storeId,
+          item.storeName,
+          Number(item.price),
+          Number(item.qty)
+        );
+      });
+
+      itemStmt.finalize((itemsErr) => {
+        if (itemsErr) {
+          return callback(itemsErr);
+        }
+        return callback(null, orderId);
+      });
+    }
+  );
 }
 
 /**
@@ -2012,102 +2297,226 @@ app.get('/checkout/bank/:bank', requireAuth, (req, res) => {
   const allowedBanks = ['swedbank', 'seb', 'lhv', 'luminor', 'applepay'];
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
   const draft = req.session.checkoutDraft || null;
+  const paymentConfig = getPaymentFormConfig(bank);
 
-  if (!allowedBanks.includes(bank) || !draft || draft.bank !== bank || cart.length === 0) {
+  if (!allowedBanks.includes(bank) || !paymentConfig || !draft || draft.bank !== bank || cart.length === 0) {
     return res.redirect('/checkout');
   }
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const paymentForm = {};
+  paymentConfig.fields.forEach((field) => {
+    if (field.name === 'userNumber' || field.name === 'clientId' || field.name === 'customerNumber') {
+      paymentForm[field.name] = String(req.session.user.id || '');
+    } else {
+      paymentForm[field.name] = '';
+    }
+  });
+
   return res.render('checkout-bank', {
     bank,
     bankLabel: getBankLabel(bank),
     draft,
     total,
     error: null,
-    paymentForm: {
-      userNumber: String(req.session.user.id || ''),
-      isikukood: ''
-    }
+    paymentConfig,
+    paymentForm
   });
 });
 
 app.post('/checkout/confirm', requireAuth, (req, res) => {
   const bank = String(req.body.bank || '').trim().toLowerCase();
-  const userNumber = String(req.body.userNumber || '').trim();
-  const isikukood = String(req.body.isikukood || '').trim();
   const draft = req.session.checkoutDraft || null;
   const cart = Array.isArray(req.session.cart) ? req.session.cart : [];
+  const paymentConfig = getPaymentFormConfig(bank);
 
-  if (!draft || draft.bank !== bank || cart.length === 0) {
+  if (!draft || draft.bank !== bank || cart.length === 0 || !paymentConfig) {
     return res.redirect('/checkout');
   }
 
   const total = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  if (!userNumber || !isikukood) {
+  const paymentForm = {};
+  let hasMissingField = false;
+  paymentConfig.fields.forEach((field) => {
+    const value = String(req.body[field.name] || '').trim();
+    paymentForm[field.name] = value;
+    if (field.required && !value) {
+      hasMissingField = true;
+    }
+  });
+
+  if (hasMissingField) {
     return res.status(400).render('checkout-bank', {
       bank,
       bankLabel: getBankLabel(bank),
       draft,
       total,
-      error: 'Palun sisesta kasutaja number ja isikukood.',
-      paymentForm: { userNumber, isikukood }
+      error: 'Palun täida kõik panga maksevormi väljad.',
+      paymentConfig,
+      paymentForm
     });
   }
 
-  db.run(
-    `INSERT INTO orders
-      (
-        user_id,
-        total,
-        bank,
-        customer_first_name,
-        customer_last_name,
-        customer_user_number,
-        customer_isikukood,
-        customer_phone,
-        customer_address,
-        status
-      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid')`,
-    [
-      req.session.user.id,
-      total,
-      bank,
-      draft.firstName,
-      draft.lastName,
-      userNumber,
-      isikukood,
-      draft.phone,
-      draft.address
-    ],
-    function (err) {
+  const firstField = paymentConfig.fields[0] ? paymentConfig.fields[0].name : '';
+  const secondField = paymentConfig.fields[1] ? paymentConfig.fields[1].name : '';
+  const customerUserNumber = firstField ? paymentForm[firstField] : '';
+  const customerIsikukood = secondField ? paymentForm[secondField] : '';
+
+  if (bank === 'swedbank') {
+    (async () => {
+      try {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const sandboxBase = String(
+          process.env.SWEDBANK_SANDBOX_BASE_URL || 'https://pi-playground.swedbank.com/sandbox'
+        ).replace(/\/+$/, '');
+        const country = String(process.env.SWEDBANK_AGREEMENT_COUNTRY || 'EE').toUpperCase();
+        const merchantId = String(process.env.SWEDBANK_MERCHANT_ID || 'SANDBOX_RSA').trim();
+        const providerBic = String(process.env.SWEDBANK_PROVIDER_BIC || 'HABAEE2X').trim();
+        const redirectUrl = String(process.env.SWEDBANK_REDIRECT_URL || `${baseUrl}/checkout/swedbank/return`);
+        const notificationUrl = String(
+          process.env.SWEDBANK_NOTIFICATION_URL || `${baseUrl}/checkout/swedbank/notification`
+        );
+        if (!redirectUrl.startsWith('https://') || !notificationUrl.startsWith('https://')) {
+          return res.status(400).render('checkout-bank', {
+            bank,
+            bankLabel: getBankLabel(bank),
+            draft,
+            total,
+            error:
+              'Swedbank sandbox vajab HTTPS URL-e. Lisa .env faili SWEDBANK_REDIRECT_URL ja SWEDBANK_NOTIFICATION_URL (nt ngrok URL).',
+            paymentConfig,
+            paymentForm
+          });
+        }
+
+        const endpoint = `${sandboxBase}/public/api/v3/transactions/providers/${encodeURIComponent(providerBic)}`;
+        const referenceSeed = `731${Date.now().toString().slice(-9)}`;
+
+        const payload = {
+          amount: Number(total.toFixed(2)),
+          currency: 'EUR',
+          description: `ToiduHind tellimus ${Date.now()}`,
+          reference: generateEstonianReference(referenceSeed),
+          locale: 'ET',
+          notificationUrl,
+          redirectUrl
+        };
+
+        const privateKey = await getSwedbankSandboxPrivateKey();
+        const signature = createDetachedJwsSignature({
+          url: endpoint,
+          body: payload,
+          privateKey,
+          kid: `${country}:${merchantId}`
+        });
+
+        const apiResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-jws-signature': signature
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const apiBody = await apiResponse.json().catch(() => ({}));
+        const bankRedirectUrl = extractSwedbankRedirectUrl(apiBody);
+        const paymentId = extractSwedbankPaymentId(apiBody);
+        if (!apiResponse.ok || !bankRedirectUrl || !paymentId) {
+          const apiError = apiBody?.errorMessages?.general?.[0]?.message || 'Unknown error';
+          throw new Error(`Swedbank API error: ${apiResponse.status} ${apiError}`);
+        }
+
+        req.session.swedbankPayment = {
+          paymentId,
+          bank,
+          total,
+          draft,
+          cart,
+          customerUserNumber,
+          customerIsikukood
+        };
+        return res.redirect(bankRedirectUrl);
+      } catch (err) {
+        console.error('Swedbank sandbox initiation failed:', err);
+        return res.status(400).render('checkout-bank', {
+          bank,
+          bankLabel: getBankLabel(bank),
+          draft,
+          total,
+          error: `Swedbank sandbox integratsioon ebaonnestus: ${err.message}`,
+          paymentConfig,
+          paymentForm
+        });
+      }
+    })();
+    return;
+  }
+
+  createOrderFromCheckoutData(
+    req,
+    { bank, total, draft, cart, customerUserNumber, customerIsikukood },
+    (err) => {
       if (err) {
         console.error(err);
         return res.status(500).send('Serveri viga');
       }
 
-      const orderId = this.lastID;
-      const itemStmt = db.prepare(
-        `INSERT INTO order_items
-          (order_id, product_slug, product_name, store_id, store_name, price, qty)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      );
+      req.session.cart = [];
+      req.session.checkoutDraft = null;
+      syncCartForCurrentUser(req, (syncErr) => {
+        if (syncErr) {
+          console.error(syncErr);
+        }
+        return res.redirect(`/cart?payment=success&bank=${encodeURIComponent(bank)}`);
+      });
+    }
+  );
+});
 
-      cart.forEach((item) => {
-        itemStmt.run(
-          orderId,
-          item.slug,
-          item.name,
-          item.storeId,
-          item.storeName,
-          Number(item.price),
-          Number(item.qty)
-        );
+app.get('/checkout/swedbank/return', requireAuth, (req, res) => {
+  const pending = req.session.swedbankPayment || null;
+  if (!pending || !pending.paymentId) {
+    return res.redirect('/checkout');
+  }
+
+  (async () => {
+    try {
+      const sandboxBase = String(
+        process.env.SWEDBANK_SANDBOX_BASE_URL || 'https://pi-playground.swedbank.com/sandbox'
+      ).replace(/\/+$/, '');
+      const country = String(process.env.SWEDBANK_AGREEMENT_COUNTRY || 'EE').toUpperCase();
+      const merchantId = String(process.env.SWEDBANK_MERCHANT_ID || 'SANDBOX_RSA').trim();
+      const statusUrl = `${sandboxBase}/public/api/v3/transactions/${encodeURIComponent(
+        pending.paymentId
+      )}/status`;
+
+      const privateKey = await getSwedbankSandboxPrivateKey();
+      const signature = createDetachedJwsSignature({
+        url: statusUrl,
+        body: '',
+        privateKey,
+        kid: `${country}:${merchantId}`
       });
 
-      itemStmt.finalize((itemsErr) => {
-        if (itemsErr) {
-          console.error(itemsErr);
+      const statusResponse = await fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          'x-jws-signature': signature
+        }
+      });
+      const statusBody = await statusResponse.json().catch(() => ({}));
+      const status = String(statusBody?.status || '').toUpperCase();
+      const isSuccess = status === 'EXECUTED' || status === 'SETTLED';
+      if (!statusResponse.ok || !isSuccess) {
+        req.session.swedbankPayment = null;
+        return res.redirect('/cart?payment=error&bank=swedbank');
+      }
+
+      createOrderFromCheckoutData(req, pending, (err) => {
+        req.session.swedbankPayment = null;
+        if (err) {
+          console.error(err);
           return res.status(500).send('Serveri viga');
         }
 
@@ -2117,11 +2526,20 @@ app.post('/checkout/confirm', requireAuth, (req, res) => {
           if (syncErr) {
             console.error(syncErr);
           }
-          return res.redirect(`/cart?payment=success&bank=${encodeURIComponent(bank)}`);
+          return res.redirect('/cart?payment=success&bank=swedbank');
         });
       });
+    } catch (err) {
+      console.error('Swedbank sandbox return/status failed:', err);
+      req.session.swedbankPayment = null;
+      return res.redirect('/cart?payment=error&bank=swedbank');
     }
-  );
+  })();
+});
+
+app.post('/checkout/swedbank/notification', express.json({ type: '*/*' }), (req, res) => {
+  // Sandbox notifications are optional in this demo flow.
+  return res.status(200).json({ ok: true });
 });
 
 // Product details page
